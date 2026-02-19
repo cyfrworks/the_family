@@ -154,7 +154,7 @@ cyfr policy set c:local.openai:0.1.0 allowed_domains '["api.openai.com"]'
 cyfr policy set c:local.gemini:0.1.0 allowed_domains '["generativelanguage.googleapis.com"]'
 
 # Create a public API key for the frontend
-cyfr key create --name "the-family" --type public --scope execution
+cyfr key create --name "the-family" --type public
 # This prints a cyfr_pk_... key — copy it and set it in .env:
 #   VITE_CYFR_PUBLIC_KEY=cyfr_pk_...
 ```
@@ -282,18 +282,34 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 ## Taking It to the Streets — Production
 
-### Build the frontend
+### 1. Set the production CYFR URL and build
+
+In your `.env`, set `VITE_CYFR_URL` to the full public URL (this gets baked in at build time):
+
+```bash
+VITE_CYFR_URL=https://yourdomain.com/mcp
+```
+
+Then build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-This outputs a static build to `frontend/dist/`. Serve it with any static file host (Nginx, Caddy, Vercel, Cloudflare Pages, etc.).
+This outputs a static build to `frontend/dist/`.
 
-In production, set `VITE_CYFR_URL` to the full URL of your CYFR server's MCP endpoint (e.g. `https://cyfr.example.com/mcp`) so the frontend calls it directly instead of relying on Vite's dev proxy.
+### 2. Install Caddy (Ubuntu/Debian)
 
-### TLS & reverse proxy
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+### 3. Configure the reverse proxy
 
 CYFR runs [Bandit](https://github.com/mtrudel/bandit) (a pure-Elixir HTTP server) on two ports:
 
@@ -302,43 +318,41 @@ CYFR runs [Bandit](https://github.com/mtrudel/bandit) (a pure-Elixir HTTP server
 | 4000 | Emissary | MCP/API endpoint (`/mcp`) |
 | 4001 | Prism | Admin dashboard (Phoenix LiveView) |
 
-CYFR does not handle TLS itself. For production, put a reverse proxy in front to terminate HTTPS.
+CYFR does not handle TLS itself — Caddy sits in front and auto-provisions HTTPS via Let's Encrypt.
 
-**Caddy** (simplest — automatic HTTPS via Let's Encrypt):
+Edit `/etc/caddy/Caddyfile`:
 
 ```
-example.com {
-    reverse_proxy /prism/* localhost:4001
-    reverse_proxy * localhost:4000
+yourdomain.com {
+    handle /mcp* {
+        reverse_proxy localhost:4000
+    }
+
+    handle /prism* {
+        reverse_proxy localhost:4001
+    }
+
+    handle {
+        root * /path/to/the_family/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
 }
 ```
 
-**Nginx** (needs explicit SSE/WebSocket config):
+The `handle` blocks are mutually exclusive — API routes go to CYFR, everything else serves the SPA with client-side routing fallback.
 
-```nginx
-# MCP endpoint — SSE requires buffering off
-location /mcp/sse {
-    proxy_pass http://localhost:4000;
-    proxy_http_version 1.1;
-    proxy_buffering off;
-    proxy_set_header Connection '';
-    proxy_read_timeout 300s;
-}
+Then reload:
 
-# Prism dashboard — LiveView uses WebSockets
-location /live {
-    proxy_pass http://localhost:4001;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
+```bash
+sudo systemctl reload caddy
 ```
+
+Make sure your domain's DNS A record points to your server's IP. Caddy handles the rest.
 
 **Watch your back:**
 
-- **SSE buffering** — CYFR sends `x-accel-buffering: no` on SSE responses, but also set `proxy_buffering off` in Nginx
-- **WebSocket upgrade** — Prism uses Phoenix LiveView over WebSockets; Nginx needs `Upgrade`/`Connection` headers forwarded
-- **Timeouts** — Bandit sends SSE keep-alive every 15s, so set `proxy_read_timeout` well above that (e.g. 300s)
+- **File permissions** — Caddy runs as the `caddy` user. If your build is under `/root/`, either `chmod 755 /root` or copy the dist to `/var/www/`
 - **Prism access** — keep port 4001 on an internal network if the dashboard shouldn't be public
 
 ## Tech Stack
