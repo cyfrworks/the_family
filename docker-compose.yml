@@ -1,0 +1,11 @@
+services:
+  cyfr:
+    image: ghcr.io/cyfrworks/cyfr:latest
+    ports:
+      - "4000:4000"
+      - "4001:4001"
+    volumes:
+      - ./data:/app/data
+      - ./components:/app/components
+    env_file:
+      - .env

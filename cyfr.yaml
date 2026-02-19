@@ -1,0 +1,4 @@
+name: my-cyfr-project
+port: 4000
+host: localhost
+database_path: ./data/cyfr.db
