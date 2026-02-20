@@ -5,7 +5,7 @@
 <h1 align="center">The Family</h1>
 
 <p align="center">
-  A multiplayer AI chat app where every Don runs their own crew — built on <a href="https://github.com/cyfrworks/cyfr">CYFR</a>.
+  A multi user multi AI chat app where every Don runs their family — built on <a href="https://github.com/cyfrworks/cyfr">CYFR</a>.
 </p>
 
 <p align="center">

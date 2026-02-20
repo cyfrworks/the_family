@@ -10,14 +10,18 @@ import { SitdownPage } from './pages/SitdownPage';
 import { MembersPage } from './pages/MembersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AdminPage } from './pages/AdminPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { RecoveryRedirect } from './components/auth/RecoveryRedirect';
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <RecoveryRedirect />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
             element={
               <AuthGuard>

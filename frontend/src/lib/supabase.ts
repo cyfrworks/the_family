@@ -65,7 +65,9 @@ async function callCatalyst<T = unknown>(operation: string, params: Record<strin
 
 function assertOk<T>(result: CatalystResult<T>, context?: string): T {
   if (result.error) {
-    throw new Error(context ? `${context}: ${result.error.message}` : result.error.message);
+    const err = result.error as Record<string, string>;
+    const msg = err.message || err.error_description || err.error || 'Unknown error';
+    throw new Error(context ? `${context}: ${msg}` : msg);
   }
   return result.data;
 }
@@ -177,6 +179,16 @@ export const auth = {
     } catch {
       return null;
     }
+  },
+
+  async updateUser(params: { password: string }): Promise<void> {
+    const result = await callCatalyst('auth.update_user', { body: params });
+    assertOk(result, 'Password update failed');
+  },
+
+  async resetPassword(email: string): Promise<void> {
+    const result = await callCatalyst('auth.reset_password', { email, access_token: undefined });
+    assertOk(result, 'Password reset failed');
   },
 
   async refresh(): Promise<AuthTokens | null> {
