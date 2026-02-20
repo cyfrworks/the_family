@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { db } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import type { Message } from '../lib/types';
+import type { CatalogModel, Member, Message, Profile } from '../lib/types';
 
 export interface RemoteTypingIndicator {
   sit_down_id: string;
@@ -26,16 +26,55 @@ export function useMessages(sitDownId: string | undefined, onPoll?: () => void) 
     if (!sitDownId) return [];
     try {
       const data = await db.select<Message>('messages', {
-        select: '*, profile:profiles!messages_profile_fk(*), member:members(*, catalog_model:model_catalog(*))',
+        select: '*',
         filters: [{ column: 'sit_down_id', op: 'eq', value: sitDownId }],
         order: [{ column: 'created_at', direction: 'asc' }],
       });
-      // Deduplicate by ID (joins can occasionally produce dupes)
-      const deduped = Array.from(new Map(data.map((m) => [m.id, m])).values());
-      setMessages(deduped);
-      return deduped;
-    } catch {
-      // ignore poll errors
+
+      // Fetch profiles for don senders
+      const userIds = [...new Set(data.filter((m) => m.sender_user_id).map((m) => m.sender_user_id as string))];
+      if (userIds.length > 0) {
+        const profiles = await db.select<Profile>('profiles', {
+          select: '*',
+          filters: [{ column: 'id', op: 'in', value: `(${userIds.join(',')})` }],
+        });
+        const profileMap = new Map(profiles.map((p) => [p.id, p]));
+        for (const msg of data) {
+          if (msg.sender_user_id) msg.profile = profileMap.get(msg.sender_user_id);
+        }
+      }
+
+      // Fetch members for member senders
+      const memberIds = [...new Set(data.filter((m) => m.sender_member_id).map((m) => m.sender_member_id as string))];
+      if (memberIds.length > 0) {
+        const members = await db.select<Member>('members', {
+          select: '*',
+          filters: [{ column: 'id', op: 'in', value: `(${memberIds.join(',')})` }],
+        });
+
+        // Enrich members with catalog model data
+        const modelIds = [...new Set(members.map((m) => m.catalog_model_id))];
+        if (modelIds.length > 0) {
+          const models = await db.select<CatalogModel>('model_catalog', {
+            select: '*',
+            filters: [{ column: 'id', op: 'in', value: `(${modelIds.join(',')})` }],
+          });
+          const modelMap = new Map(models.map((m) => [m.id, m]));
+          for (const member of members) {
+            member.catalog_model = modelMap.get(member.catalog_model_id);
+          }
+        }
+
+        const memberMap = new Map(members.map((m) => [m.id, m]));
+        for (const msg of data) {
+          if (msg.sender_member_id) msg.member = memberMap.get(msg.sender_member_id);
+        }
+      }
+
+      setMessages(data);
+      return data;
+    } catch (err) {
+      console.error('[useMessages] Failed to fetch messages:', err);
       return [];
     }
   }, [sitDownId]);

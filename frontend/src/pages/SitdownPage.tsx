@@ -67,7 +67,7 @@ export function SitdownPage() {
   const sitDownContext: SitDownContext = {
     isCommission: sitDown.is_commission,
     dons: participants
-      .filter((p) => p.user_id !== null && p.profile)
+      .filter((p) => p.user_id != null && p.profile)
       .map((p) => ({ userId: p.user_id!, displayName: p.profile!.display_name })),
     allMembers: participantMembers,
   };
