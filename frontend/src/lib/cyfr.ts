@@ -46,7 +46,9 @@ export async function cyfrCall(toolName: string, args: Record<string, unknown>):
 
   // If it's a direct error from the execution envelope
   if (parsed.status === 'error' || parsed.type === 'execution_failed') {
-    throw new CyfrError(-33100, parsed.message ?? parsed.error ?? 'Execution failed');
+    const errPayload = parsed.message ?? parsed.error;
+    const errMsg = typeof errPayload === 'string' ? errPayload : (errPayload?.message ?? JSON.stringify(errPayload) ?? 'Execution failed');
+    throw new CyfrError(-33100, errMsg);
   }
 
   return parsed;

@@ -8,13 +8,13 @@ export function useCommissionSitDowns() {
   async function createCommissionSitDown(
     name: string,
     description: string | undefined,
-    roleIds: string[],
+    memberIds: string[],
     contactIds: string[]
   ) {
     const data = await db.rpc<SitDown>('create_commission_sit_down', {
       p_name: name,
       p_description: description ?? null,
-      p_role_ids: roleIds,
+      p_member_ids: memberIds,
       p_contact_ids: contactIds,
     });
     await refetch();

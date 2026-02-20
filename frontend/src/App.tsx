@@ -7,7 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { SitdownPage } from './pages/SitdownPage';
-import { RolesPage } from './pages/RolesPage';
+import { MembersPage } from './pages/MembersPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 export default function App() {
@@ -28,7 +28,7 @@ export default function App() {
           >
             <Route index element={<DashboardPage />} />
             <Route path="sitdown/:id" element={<SitdownPage />} />
-            <Route path="members" element={<RolesPage />} />
+            <Route path="members" element={<MembersPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

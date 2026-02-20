@@ -36,7 +36,7 @@ export function MessageBubble({ message, replyTo, animate, queued, onAnimationCo
   const replySender = replyTo
     ? replyTo.sender_type === 'don'
       ? replyTo.profile?.display_name ?? 'Don'
-      : replyTo.role?.name ?? 'Unknown'
+      : replyTo.member?.name ?? 'Unknown'
     : null;
 
   const replyQuote = replySnippet && (
@@ -82,20 +82,20 @@ export function MessageBubble({ message, replyTo, animate, queued, onAnimationCo
     );
   }
 
-  // Role message
-  const provider = message.role?.provider ?? 'claude';
+  // Member message
+  const provider = message.member?.provider ?? 'claude';
 
   return (
     <div id={`msg-${message.id}`} className="flex gap-3 px-4 py-2 transition-colors duration-700 hover:bg-stone-900/50">
       <div
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${PROVIDER_COLORS[provider]}`}
       >
-        {message.role?.name?.[0]?.toUpperCase() ?? 'R'}
+        {message.member?.name?.[0]?.toUpperCase() ?? 'M'}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-semibold text-stone-200">
-            {message.role?.name ?? 'Unknown Role'}
+            {message.member?.name ?? 'Unknown Member'}
           </span>
           <span
             className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold text-white ${PROVIDER_COLORS[provider]}`}

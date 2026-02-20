@@ -1,32 +1,34 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Send, Users, X } from 'lucide-react';
-import type { Message, Role } from '../../lib/types';
+import type { Message, Member } from '../../lib/types';
 import { useMention } from '../../hooks/useMention';
+import { getMentionText } from '../../lib/mention-parser';
 import { MentionPopover } from './MentionPopover';
 
 interface MessageComposerProps {
-  roles: Role[];
+  members: Member[];
   onSend: (content: string) => void;
   disabled?: boolean;
   onToggleMembers?: () => void;
   showMembers?: boolean;
   replyTo?: Message | null;
   onCancelReply?: () => void;
+  memberOwnerMap?: Map<string, string>;
 }
 
-export function MessageComposer({ roles, onSend, disabled, onToggleMembers, showMembers, replyTo, onCancelReply }: MessageComposerProps) {
+export function MessageComposer({ members, onSend, disabled, onToggleMembers, showMembers, replyTo, onCancelReply, memberOwnerMap }: MessageComposerProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mention = useMention(roles);
+  const mention = useMention(members, memberOwnerMap);
 
-  // When replying to a role message, pre-fill @mention and focus
+  // When replying to a member message, pre-fill @mention and focus
   useEffect(() => {
     if (!replyTo) return;
-    if (replyTo.sender_type === 'role' && replyTo.role) {
-      setText(`@${replyTo.role.name} `);
+    if (replyTo.sender_type === 'member' && replyTo.member) {
+      setText(`@${getMentionText(replyTo.member, memberOwnerMap)} `);
     }
     textareaRef.current?.focus();
-  }, [replyTo]);
+  }, [replyTo, memberOwnerMap]);
 
   function handleSend() {
     const trimmed = text.trim();
@@ -88,7 +90,7 @@ export function MessageComposer({ roles, onSend, disabled, onToggleMembers, show
         <div className="mb-2 flex items-center gap-2 rounded border-l-2 border-gold-600 bg-stone-800/50 px-2 py-1.5">
           <div className="min-w-0 flex-1">
             <span className="text-[11px] font-semibold text-stone-400">
-              Replying to {replyTo.sender_type === 'don' ? replyTo.profile?.display_name ?? 'Don' : replyTo.role?.name ?? 'Unknown'}
+              Replying to {replyTo.sender_type === 'don' ? replyTo.profile?.display_name ?? 'Don' : replyTo.member?.name ?? 'Unknown'}
             </span>
             <p className="truncate text-[11px] text-stone-500">
               {replyTo.content.length > 100 ? replyTo.content.slice(0, 100) + '...' : replyTo.content}
@@ -107,6 +109,7 @@ export function MessageComposer({ roles, onSend, disabled, onToggleMembers, show
         <MentionPopover
           candidates={mention.candidates}
           selectedIndex={mention.selectedIndex}
+          memberOwnerMap={memberOwnerMap}
           onSelect={(i) => {
             const newText = mention.selectCandidate(i, text);
             setText(newText);
@@ -138,8 +141,8 @@ export function MessageComposer({ roles, onSend, disabled, onToggleMembers, show
           rows={1}
           className="flex-1 resize-none rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-sm text-stone-100 placeholder-stone-500 focus:border-gold-600 focus:outline-none focus:ring-1 focus:ring-gold-600 disabled:opacity-50"
           placeholder={
-            roles.length > 0
-              ? 'Type a message... Use @role to mention an AI'
+            members.length > 0
+              ? 'Type a message... Use @member to mention an AI'
               : 'Type a message...'
           }
         />

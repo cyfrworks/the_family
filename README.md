@@ -110,7 +110,7 @@ Copy the contents of supabase/migration.sql into your
 Supabase project → SQL Editor → New Query → Run
 ```
 
-This sets up the whole operation: tables (`profiles`, `roles`, `sit_downs`, `sit_down_members`, `messages`, `commission_contacts`, `typing_indicators`), RLS policies, triggers, and RPC functions.
+This sets up the whole operation: tables (`profiles`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`), RLS policies, triggers, and RPC functions.
 
 Then configure auth redirects:
 
@@ -186,7 +186,7 @@ Sign-up and sign-in calls go through `Frontend → CYFR → Supabase catalyst �
 
 ### The books — Database
 
-All operations (roles, sit-downs, members, messages, commissions) go through `Frontend → CYFR → Supabase catalyst → Supabase PostgREST`. Row Level Security policies keep each family's business private, with exceptions for shared commission sit-downs.
+All operations (members, sit-downs, participants, messages, commissions) go through `Frontend → CYFR → Supabase catalyst → Supabase PostgREST`. Row Level Security policies keep each family's business private, with exceptions for shared commission sit-downs.
 
 ### Hearing from the crew — AI Responses
 
@@ -225,7 +225,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── commission/      # CreateCommissionSitDownModal,
 │   │   │   │                    # InviteToCommissionModal, PendingInvitesBanner
 │   │   │   ├── layout/          # AppShell, Sidebar
-│   │   │   ├── roles/           # RoleCard, RoleEditor, RoleTemplateSelector
+│   │   │   ├── members/         # MemberCard, MemberEditor, MemberTemplateSelector
 │   │   │   └── sitdown/         # CreateSitdownModal, MemberList
 │   │   ├── config/
 │   │   │   └── constants.ts     # Member templates, model lists, limits
@@ -239,7 +239,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── useMention.ts         # @mention autocomplete state
 │   │   │   ├── useMessages.ts        # Message fetching (3s poll) + sending
 │   │   │   ├── useModels.ts          # List available LLM models
-│   │   │   ├── useRoles.ts           # Member CRUD
+│   │   │   ├── useMembers.ts         # Member CRUD
 │   │   │   ├── useSitDown.ts         # Single sit-down + members
 │   │   │   └── useSitDowns.ts        # Sit-down list
 │   │   ├── lib/

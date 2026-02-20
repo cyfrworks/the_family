@@ -11,26 +11,47 @@ export function InviteToCommissionModal({ onClose }: InviteToCommissionModalProp
   const { inviteByEmail } = useCommission();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setInlineError(null);
     setLoading(true);
     try {
       await inviteByEmail(email.trim());
       toast.success('Word has been sent.');
       onClose();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('USER_NOT_FOUND')) {
-        toast.error("No one in the underworld goes by that name.");
-      } else if (message.includes('ALREADY_CONNECTED')) {
-        toast.error("They're already in The Commission.");
-      } else if (message.includes('ALREADY_PENDING')) {
-        toast.error("Word has already been sent. They haven't responded yet.");
-      } else if (message.includes('CANNOT_INVITE_SELF')) {
-        toast.error("You can't invite yourself, Don.");
+      console.error('Commission invite error:', err);
+
+      // Build a searchable string from every possible error shape:
+      // - err.message (plain or JSON-encoded)
+      // - JSON.stringify of the whole error (catches CyfrError.code + message)
+      // - String fallback
+      let raw = err instanceof Error ? err.message : String(err);
+
+      // err.message may itself be a JSON string from CYFR — try to unwrap it
+      try {
+        const parsed = JSON.parse(raw);
+        raw = parsed.message ?? parsed.error?.message ?? parsed.error ?? raw;
+        if (typeof raw !== 'string') raw = JSON.stringify(raw);
+      } catch {
+        // not JSON, keep raw as-is
+      }
+
+      const upper = raw.toUpperCase();
+
+      if (upper.includes('ALREADY_CONNECTED')) {
+        setInlineError("They're already in The Commission.");
+      } else if (upper.includes('ALREADY_PENDING') || upper.includes('UNIQUE CONSTRAINT') || upper.includes('DUPLICATE KEY')) {
+        setInlineError("Word's already been sent. They haven't responded yet.");
+      } else if (upper.includes('USER_NOT_FOUND')) {
+        setInlineError("No one in the underworld goes by that name.");
+      } else if (upper.includes('CANNOT_INVITE_SELF')) {
+        setInlineError("You can't invite yourself, Don.");
       } else {
-        toast.error("Couldn't send word.");
+        console.error('Unrecognized invite error format:', raw);
+        setInlineError("Couldn't send word.");
       }
     } finally {
       setLoading(false);
@@ -53,14 +74,25 @@ export function InviteToCommissionModal({ onClose }: InviteToCommissionModalProp
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setInlineError(null);
+              }}
               required
-              className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-stone-100 focus:border-gold-600 focus:outline-none focus:ring-1 focus:ring-gold-600"
+              className={`w-full rounded-lg border bg-stone-800 px-3 py-2 text-stone-100 focus:outline-none focus:ring-1 ${
+                inlineError
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                  : 'border-stone-700 focus:border-gold-600 focus:ring-gold-600'
+              }`}
               placeholder="their.email@example.com"
             />
-            <p className="mt-1.5 text-xs text-stone-500">
-              They must already have an account in The Family.
-            </p>
+            {inlineError ? (
+              <p className="mt-1.5 text-xs text-red-400">{inlineError}</p>
+            ) : (
+              <p className="mt-1.5 text-xs text-stone-500">
+                They must already have an account in The Family.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

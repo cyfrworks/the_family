@@ -1,4 +1,4 @@
-import type { Provider, RoleTemplate } from '../lib/types';
+import type { Provider, MemberTemplate } from '../lib/types';
 
 export const PROVIDERS: Provider[] = ['claude', 'openai', 'gemini'];
 
@@ -14,7 +14,7 @@ export const PROVIDER_COLORS: Record<Provider, string> = {
   gemini: 'bg-blue-600',
 };
 
-export const ROLE_TEMPLATES: RoleTemplate[] = [
+export const MEMBER_TEMPLATES: MemberTemplate[] = [
   {
     name: 'The Consigliere',
     slug: 'consigliere',

@@ -5,7 +5,7 @@ export interface Profile {
   created_at: string;
 }
 
-export interface Role {
+export interface Member {
   id: string;
   owner_id: string;
   name: string;
@@ -27,31 +27,31 @@ export interface SitDown {
   created_at: string;
 }
 
-export interface SitDownMember {
+export interface SitDownParticipant {
   id: string;
   sit_down_id: string;
   user_id: string | null;
-  role_id: string | null;
+  member_id: string | null;
   added_by: string;
   added_at: string;
   // Joined data
   profile?: Profile;
-  role?: Role;
+  member?: Member;
 }
 
 export interface Message {
   id: string;
   sit_down_id: string;
-  sender_type: 'don' | 'role';
+  sender_type: 'don' | 'member';
   sender_user_id: string | null;
-  sender_role_id: string | null;
+  sender_member_id: string | null;
   content: string;
   mentions: string[];
   metadata: Record<string, unknown>;
   created_at: string;
   // Joined data
   profile?: Profile;
-  role?: Role;
+  member?: Member;
 }
 
 export type Provider = 'claude' | 'openai' | 'gemini';
@@ -69,7 +69,7 @@ export interface CommissionContact {
   contact_profile?: Profile;
 }
 
-export interface RoleTemplate {
+export interface MemberTemplate {
   name: string;
   slug: string;
   provider: Provider;

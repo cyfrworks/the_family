@@ -1,13 +1,13 @@
 import { X } from 'lucide-react';
-import { ROLE_TEMPLATES, PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
-import type { RoleTemplate } from '../../lib/types';
+import { MEMBER_TEMPLATES, PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
+import type { MemberTemplate } from '../../lib/types';
 
-interface RoleTemplateSelectorProps {
-  onSelect: (template: RoleTemplate) => void;
+interface MemberTemplateSelectorProps {
+  onSelect: (template: MemberTemplate) => void;
   onClose: () => void;
 }
 
-export function RoleTemplateSelector({ onSelect, onClose }: RoleTemplateSelectorProps) {
+export function MemberTemplateSelector({ onSelect, onClose }: MemberTemplateSelectorProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-stone-800 bg-stone-900 shadow-xl">
@@ -20,7 +20,7 @@ export function RoleTemplateSelector({ onSelect, onClose }: RoleTemplateSelector
 
         <div className="max-h-[60vh] overflow-y-auto p-5">
           <div className="grid gap-3 sm:grid-cols-2">
-            {ROLE_TEMPLATES.map((template) => (
+            {MEMBER_TEMPLATES.map((template) => (
               <button
                 key={template.slug}
                 onClick={() => onSelect(template)}

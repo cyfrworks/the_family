@@ -5,8 +5,8 @@ import type { Message } from '../lib/types';
 
 export interface RemoteTypingIndicator {
   sit_down_id: string;
-  role_id: string;
-  role_name: string;
+  member_id: string;
+  member_name: string;
   started_by: string;
   started_at: string;
 }
@@ -26,7 +26,7 @@ export function useMessages(sitDownId: string | undefined, onPoll?: () => void) 
     if (!sitDownId) return [];
     try {
       const data = await db.select<Message>('messages', {
-        select: '*,profile:profiles!messages_profile_fk(*),role:roles(*)',
+        select: '*,profile:profiles!messages_profile_fk(*),member:members(*)',
         filters: [{ column: 'sit_down_id', op: 'eq', value: sitDownId }],
         order: [{ column: 'created_at', direction: 'asc' }],
       });
@@ -63,7 +63,7 @@ export function useMessages(sitDownId: string | undefined, onPoll?: () => void) 
     init();
   }, [fetchMessages]);
 
-  // Single poll: messages + optional piggyback (members, etc.)
+  // Single poll: messages + optional piggyback (participants, etc.)
   useEffect(() => {
     if (!sitDownId) return;
 

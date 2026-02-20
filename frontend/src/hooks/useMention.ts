@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
-import type { Role } from '../lib/types';
-import { getMentionCandidates } from '../lib/mention-parser';
+import type { Member } from '../lib/types';
+import { getMentionCandidates, getMentionText } from '../lib/mention-parser';
 
 interface MentionState {
   isOpen: boolean;
   query: string;
-  candidates: Role[];
+  candidates: Member[];
   selectedIndex: number;
   triggerPosition: number;
 }
@@ -18,7 +18,7 @@ const INITIAL_STATE: MentionState = {
   triggerPosition: -1,
 };
 
-export function useMention(roles: Role[]) {
+export function useMention(members: Member[], memberOwnerMap?: Map<string, string>) {
   const [state, setState] = useState<MentionState>(INITIAL_STATE);
 
   const handleInput = useCallback(
@@ -40,10 +40,10 @@ export function useMention(roles: Role[]) {
       }
 
       const candidates = [
-        ...getMentionCandidates(query, roles),
+        ...getMentionCandidates(query, members),
         // Add @all option
         ...(query === '' || 'all'.startsWith(query.toLowerCase())
-          ? [{ id: 'all', name: 'All Members', provider: 'claude', model: '', system_prompt: '', owner_id: '', is_template: false, template_slug: null, avatar_url: null, created_at: '' } as Role]
+          ? [{ id: 'all', name: 'All Members', provider: 'claude', model: '', system_prompt: '', owner_id: '', is_template: false, template_slug: null, avatar_url: null, created_at: '' } as Member]
           : []),
       ];
 
@@ -60,7 +60,7 @@ export function useMention(roles: Role[]) {
         triggerPosition: atIndex,
       });
     },
-    [roles]
+    [members]
   );
 
   const selectCandidate = useCallback(
@@ -70,13 +70,15 @@ export function useMention(roles: Role[]) {
 
       const before = currentText.slice(0, state.triggerPosition);
       const after = currentText.slice(state.triggerPosition + state.query.length + 1);
-      const mentionText = candidate.id === 'all' ? '@all' : `@${candidate.name}`;
+      const mentionText = candidate.id === 'all'
+        ? '@all'
+        : `@${getMentionText(candidate, memberOwnerMap)}`;
       const newText = `${before}${mentionText} ${after}`;
 
       setState(INITIAL_STATE);
       return newText;
     },
-    [state]
+    [state, memberOwnerMap]
   );
 
   const moveSelection = useCallback(

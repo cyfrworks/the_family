@@ -1,26 +1,26 @@
 import { useState, type FormEvent } from 'react';
 import { X, Loader2 } from 'lucide-react';
-import type { Provider, Role } from '../../lib/types';
+import type { Provider, Member } from '../../lib/types';
 import { PROVIDER_LABELS } from '../../config/constants';
 import { useModels } from '../../hooks/useModels';
 
-interface RoleEditorProps {
-  role: Role | null;
+interface MemberEditorProps {
+  member: Member | null;
   onSave: (data: { name: string; provider: Provider; model: string; system_prompt: string }) => Promise<void>;
   onClose: () => void;
 }
 
-export function RoleEditor({ role, onSave, onClose }: RoleEditorProps) {
+export function MemberEditor({ member, onSave, onClose }: MemberEditorProps) {
   const { models, availableProviders, loading: modelsLoading, error: modelsError } = useModels();
-  const [name, setName] = useState(role?.name ?? '');
-  const [provider, setProvider] = useState<Provider>(role?.provider ?? 'claude');
-  const [model, setModel] = useState(role?.model ?? '');
-  const [systemPrompt, setSystemPrompt] = useState(role?.system_prompt ?? '');
+  const [name, setName] = useState(member?.name ?? '');
+  const [provider, setProvider] = useState<Provider>(member?.provider ?? 'claude');
+  const [model, setModel] = useState(member?.model ?? '');
+  const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? '');
   const [saving, setSaving] = useState(false);
 
   // Once models load, set default model if none selected
   const providerModels = models[provider] ?? [];
-  const effectiveModel = model && (providerModels.includes(model) || role?.model === model)
+  const effectiveModel = model && (providerModels.includes(model) || member?.model === model)
     ? model
     : providerModels[0] ?? '';
 
@@ -48,7 +48,7 @@ export function RoleEditor({ role, onSave, onClose }: RoleEditorProps) {
       <div className="w-full max-w-lg rounded-xl border border-stone-800 bg-stone-900 shadow-xl">
         <div className="flex items-center justify-between border-b border-stone-800 px-5 py-4">
           <h3 className="font-serif text-lg font-bold text-stone-100">
-            {role ? 'Edit Role' : 'Create Role'}
+            {member ? 'Edit Member' : 'Create Member'}
           </h3>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-200">
             <X size={20} />
@@ -100,9 +100,9 @@ export function RoleEditor({ role, onSave, onClose }: RoleEditorProps) {
                   onChange={(e) => setModel(e.target.value)}
                   className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-stone-100 focus:border-gold-600 focus:outline-none focus:ring-1 focus:ring-gold-600"
                 >
-                  {role?.model && !providerModels.includes(role.model) && provider === role.provider && (
-                    <option value={role.model}>
-                      {role.model} (unavailable)
+                  {member?.model && !providerModels.includes(member.model) && provider === member.provider && (
+                    <option value={member.model}>
+                      {member.model} (unavailable)
                     </option>
                   )}
                   {providerModels.map((m) => (
@@ -125,7 +125,7 @@ export function RoleEditor({ role, onSave, onClose }: RoleEditorProps) {
               required
               rows={6}
               className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-stone-100 focus:border-gold-600 focus:outline-none focus:ring-1 focus:ring-gold-600 resize-none"
-              placeholder="Describe this role's personality, speaking style, and expertise..."
+              placeholder="Describe this member's personality, speaking style, and expertise..."
             />
           </div>
 
@@ -142,7 +142,7 @@ export function RoleEditor({ role, onSave, onClose }: RoleEditorProps) {
               disabled={saving || modelsLoading || availableProviders.length === 0}
               className="rounded-lg bg-gold-600 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-gold-500 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Saving...' : role ? 'Update' : 'Create'}
+              {saving ? 'Saving...' : member ? 'Update' : 'Create'}
             </button>
           </div>
         </form>

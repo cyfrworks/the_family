@@ -55,7 +55,7 @@ interface SidebarProps {
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { profile, signOut } = useAuth();
   const { sitDowns, deleteSitDown, refetch: refetchSitDowns } = useSitDowns();
-  const { contacts, pendingInvites, acceptInvite, declineInvite, removeContact } = useCommission();
+  const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
   const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown } = useCommissionSitDowns();
   const location = useLocation();
   const navigate = useNavigate();
@@ -233,6 +233,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   onDecline={declineInvite}
                 />
 
+                {/* Outgoing pending invites */}
+                {sentInvites.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 rounded-md px-2 py-1 opacity-60">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-stone-700 text-[9px] font-bold text-stone-400">
+                      {c.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                    </div>
+                    <span className="flex-1 truncate text-xs italic text-stone-500">
+                      {c.contact_profile?.display_name ?? 'Don'}
+                    </span>
+                    <span className="text-[10px] text-stone-600">Pending...</span>
+                  </div>
+                ))}
+
                 {/* Contact list */}
                 {contacts.map((c) => (
                   <div key={c.id} className="group flex items-center gap-2 rounded-md px-2 py-1">
@@ -255,7 +268,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   </div>
                 ))}
 
-                {contacts.length === 0 && pendingInvites.length === 0 && (
+                {contacts.length === 0 && pendingInvites.length === 0 && sentInvites.length === 0 && (
                   <p className="px-2 py-1 text-[11px] text-stone-600">No contacts yet.</p>
                 )}
 

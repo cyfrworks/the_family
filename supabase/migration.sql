@@ -35,9 +35,9 @@ create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- ============================================
--- ROLES (AI persona definitions)
+-- MEMBERS (AI persona definitions)
 -- ============================================
-create table public.roles (
+create table public.members (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
@@ -50,22 +50,22 @@ create table public.roles (
   created_at timestamptz not null default now()
 );
 
-alter table public.roles enable row level security;
+alter table public.members enable row level security;
 
-create policy "Users can view own roles and templates"
-  on public.roles for select
+create policy "Users can view own members and templates"
+  on public.members for select
   using (owner_id = (select auth.uid()) or is_template = true);
 
-create policy "Users can create own roles"
-  on public.roles for insert
+create policy "Users can create own members"
+  on public.members for insert
   with check (owner_id = (select auth.uid()));
 
-create policy "Users can update own roles"
-  on public.roles for update
+create policy "Users can update own members"
+  on public.members for update
   using (owner_id = (select auth.uid()) and is_template = false);
 
-create policy "Users can delete own roles"
-  on public.roles for delete
+create policy "Users can delete own members"
+  on public.members for delete
   using (owner_id = (select auth.uid()) and is_template = false);
 
 -- ============================================
@@ -93,54 +93,54 @@ create policy "Creator can delete sit-down"
   on public.sit_downs for delete
   using (created_by = (select auth.uid()));
 
-create policy "Members can delete commission sit-downs"
+create policy "Participants can delete commission sit-downs"
   on public.sit_downs for delete
-  using (is_commission = true and public.is_sit_down_member(id));
+  using (is_commission = true and public.is_sit_down_participant(id));
 
 -- ============================================
--- SIT-DOWN MEMBERS (Dons and Roles)
+-- SIT-DOWN PARTICIPANTS (Dons and Members)
 -- ============================================
-create table public.sit_down_members (
+create table public.sit_down_participants (
   id uuid primary key default gen_random_uuid(),
   sit_down_id uuid not null references public.sit_downs(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
-  role_id uuid references public.roles(id) on delete cascade,
+  member_id uuid references public.members(id) on delete cascade,
   added_by uuid not null references auth.users(id),
   added_at timestamptz not null default now(),
-  constraint member_type_check check (
-    (user_id is not null and role_id is null) or
-    (user_id is null and role_id is not null)
+  constraint participant_type_check check (
+    (user_id is not null and member_id is null) or
+    (user_id is null and member_id is not null)
   ),
-  constraint unique_user_member unique (sit_down_id, user_id),
-  constraint unique_role_member unique (sit_down_id, role_id)
+  constraint unique_user_participant unique (sit_down_id, user_id),
+  constraint unique_member_participant unique (sit_down_id, member_id)
 );
 
-alter table public.sit_down_members enable row level security;
+alter table public.sit_down_participants enable row level security;
 
--- Helper function: check sit-down membership without triggering RLS
--- (avoids infinite recursion when policies on sit_down_members reference themselves)
-create or replace function public.is_sit_down_member(p_sit_down_id uuid)
+-- Helper function: check sit-down participation without triggering RLS
+-- (avoids infinite recursion when policies on sit_down_participants reference themselves)
+create or replace function public.is_sit_down_participant(p_sit_down_id uuid)
 returns boolean as $$
   select exists (
-    select 1 from public.sit_down_members
+    select 1 from public.sit_down_participants
     where sit_down_id = p_sit_down_id
       and user_id = (select auth.uid())
   );
 $$ language sql security definer set search_path = '';
 
-create policy "Members can view sit-down members"
-  on public.sit_down_members for select
-  using (public.is_sit_down_member(sit_down_id));
+create policy "Participants can view sit-down participants"
+  on public.sit_down_participants for select
+  using (public.is_sit_down_participant(sit_down_id));
 
-create policy "Members can add members"
-  on public.sit_down_members for insert
+create policy "Participants can add participants"
+  on public.sit_down_participants for insert
   with check (
     added_by = (select auth.uid())
-    and public.is_sit_down_member(sit_down_id)
+    and public.is_sit_down_participant(sit_down_id)
   );
 
-create policy "Creator can remove members"
-  on public.sit_down_members for delete
+create policy "Creator can remove participants"
+  on public.sit_down_participants for delete
   using (
     exists (
       select 1 from public.sit_downs s
@@ -148,24 +148,24 @@ create policy "Creator can remove members"
     )
   );
 
-create policy "Members can remove themselves"
-  on public.sit_down_members for delete
+create policy "Participants can remove themselves"
+  on public.sit_down_participants for delete
   using (user_id = (select auth.uid()));
 
-create policy "Commission members can remove roles"
-  on public.sit_down_members for delete
+create policy "Commission participants can remove members"
+  on public.sit_down_participants for delete
   using (
-    role_id is not null
-    and public.is_sit_down_member(sit_down_id)
+    member_id is not null
+    and public.is_sit_down_participant(sit_down_id)
     and exists (
       select 1 from public.sit_downs s
       where s.id = sit_down_id and s.is_commission = true
     )
   );
 
-create policy "Members can view their sit-downs"
+create policy "Participants can view their sit-downs"
   on public.sit_downs for select
-  using (public.is_sit_down_member(id));
+  using (public.is_sit_down_participant(id));
 
 -- ============================================
 -- MESSAGES
@@ -173,37 +173,37 @@ create policy "Members can view their sit-downs"
 create table public.messages (
   id uuid primary key default gen_random_uuid(),
   sit_down_id uuid not null references public.sit_downs(id) on delete cascade,
-  sender_type text not null check (sender_type in ('don', 'role')),
+  sender_type text not null check (sender_type in ('don', 'member')),
   sender_user_id uuid references auth.users(id),
-  sender_role_id uuid references public.roles(id),
+  sender_member_id uuid references public.members(id),
   content text not null,
   mentions uuid[] default '{}',
   metadata jsonb default '{}',
   created_at timestamptz not null default now(),
   constraint sender_check check (
-    (sender_type = 'don' and sender_user_id is not null and sender_role_id is null) or
-    (sender_type = 'role' and sender_role_id is not null and sender_user_id is null)
+    (sender_type = 'don' and sender_user_id is not null and sender_member_id is null) or
+    (sender_type = 'member' and sender_member_id is not null and sender_user_id is null)
   )
 );
 
 alter table public.messages enable row level security;
 
-create policy "Members can view messages"
+create policy "Participants can view messages"
   on public.messages for select
-  using (public.is_sit_down_member(sit_down_id));
+  using (public.is_sit_down_participant(sit_down_id));
 
-create policy "Members can insert don messages"
+create policy "Participants can insert don messages"
   on public.messages for insert
   with check (
     sender_type = 'don'
     and sender_user_id = (select auth.uid())
-    and public.is_sit_down_member(sit_down_id)
+    and public.is_sit_down_participant(sit_down_id)
   );
 
 -- Direct FKs to profiles (public→public) so PostgREST can resolve joins
 -- (the default FK path goes through auth.users which is not in the exposed schema)
-alter table public.sit_down_members
-  add constraint sit_down_members_profile_fk
+alter table public.sit_down_participants
+  add constraint sit_down_participants_profile_fk
   foreign key (user_id) references public.profiles(id);
 
 alter table public.messages
@@ -215,15 +215,15 @@ alter publication supabase_realtime add table public.messages;
 
 -- Index for message queries
 create index idx_messages_sit_down on public.messages(sit_down_id, created_at);
-create index idx_sit_down_members_sit_down on public.sit_down_members(sit_down_id);
-create index idx_sit_down_members_user on public.sit_down_members(user_id);
+create index idx_sit_down_participants_sit_down on public.sit_down_participants(sit_down_id);
+create index idx_sit_down_participants_user on public.sit_down_participants(user_id);
 
 -- ============================================
 -- RPC: Insert AI message (bypasses RLS safely)
 -- ============================================
 create or replace function public.insert_ai_message(
   p_sit_down_id uuid,
-  p_sender_role_id uuid,
+  p_sender_member_id uuid,
   p_content text,
   p_mentions uuid[] default '{}',
   p_metadata jsonb default '{}'
@@ -231,24 +231,24 @@ create or replace function public.insert_ai_message(
 declare
   v_message public.messages;
 begin
-  -- Verify caller is a member of this sit-down
+  -- Verify caller is a participant of this sit-down
   if not exists (
-    select 1 from public.sit_down_members
+    select 1 from public.sit_down_participants
     where sit_down_id = p_sit_down_id and user_id = auth.uid()
   ) then
-    raise exception 'Not a member of this sit-down';
+    raise exception 'Not a participant of this sit-down';
   end if;
 
-  -- Verify role is a member of this sit-down
+  -- Verify member is a participant of this sit-down
   if not exists (
-    select 1 from public.sit_down_members
-    where sit_down_id = p_sit_down_id and role_id = p_sender_role_id
+    select 1 from public.sit_down_participants
+    where sit_down_id = p_sit_down_id and member_id = p_sender_member_id
   ) then
-    raise exception 'Role is not a member of this sit-down';
+    raise exception 'Member is not a participant of this sit-down';
   end if;
 
-  insert into public.messages (sit_down_id, sender_type, sender_role_id, content, mentions, metadata)
-  values (p_sit_down_id, 'role', p_sender_role_id, p_content, p_mentions, p_metadata)
+  insert into public.messages (sit_down_id, sender_type, sender_member_id, content, mentions, metadata)
+  values (p_sit_down_id, 'member', p_sender_member_id, p_content, p_mentions, p_metadata)
   returning * into v_message;
 
   return v_message;
@@ -256,7 +256,7 @@ end;
 $$ language plpgsql security definer set search_path = '';
 
 -- ============================================
--- RPC: Create sit-down and add creator as member
+-- RPC: Create sit-down and add creator as participant
 -- ============================================
 create or replace function public.create_sit_down(
   p_name text,
@@ -269,7 +269,7 @@ begin
   values (p_name, p_description, auth.uid())
   returning * into v_sit_down;
 
-  insert into public.sit_down_members (sit_down_id, user_id, added_by)
+  insert into public.sit_down_participants (sit_down_id, user_id, added_by)
   values (v_sit_down.id, auth.uid(), auth.uid());
 
   return v_sit_down;
@@ -447,12 +447,12 @@ $$ language plpgsql security definer set search_path = '';
 create or replace function public.create_commission_sit_down(
   p_name text,
   p_description text default null,
-  p_role_ids uuid[] default '{}',
+  p_member_ids uuid[] default '{}',
   p_contact_ids uuid[] default '{}'
 ) returns public.sit_downs as $$
 declare
   v_sit_down public.sit_downs;
-  v_role_id uuid;
+  v_member_id uuid;
   v_contact_user_id uuid;
 begin
   -- Create the sit-down
@@ -460,17 +460,17 @@ begin
   values (p_name, p_description, auth.uid(), true)
   returning * into v_sit_down;
 
-  -- Add creator as user member
-  insert into public.sit_down_members (sit_down_id, user_id, added_by)
+  -- Add creator as user participant
+  insert into public.sit_down_participants (sit_down_id, user_id, added_by)
   values (v_sit_down.id, auth.uid(), auth.uid());
 
-  -- Add creator's roles
-  foreach v_role_id in array p_role_ids loop
-    insert into public.sit_down_members (sit_down_id, role_id, added_by)
-    values (v_sit_down.id, v_role_id, auth.uid());
+  -- Add creator's members
+  foreach v_member_id in array p_member_ids loop
+    insert into public.sit_down_participants (sit_down_id, member_id, added_by)
+    values (v_sit_down.id, v_member_id, auth.uid());
   end loop;
 
-  -- Add commission contacts as user members
+  -- Add commission contacts as user participants
   foreach v_contact_user_id in array p_contact_ids loop
     -- Verify they are an accepted contact
     if exists (
@@ -479,7 +479,7 @@ begin
         and contact_user_id = v_contact_user_id
         and status = 'accepted'
     ) then
-      insert into public.sit_down_members (sit_down_id, user_id, added_by)
+      insert into public.sit_down_participants (sit_down_id, user_id, added_by)
       values (v_sit_down.id, v_contact_user_id, auth.uid());
     end if;
   end loop;
@@ -489,33 +489,33 @@ end;
 $$ language plpgsql security definer set search_path = '';
 
 -- ============================================
--- RLS: Allow viewing roles in shared commission sit-downs
+-- RLS: Allow viewing members in shared commission sit-downs
 -- ============================================
--- Roles already added to a commission sit-down
-create policy "Users can view roles in shared sit-downs"
-  on public.roles for select
+-- Members already added to a commission sit-down
+create policy "Users can view members in shared sit-downs"
+  on public.members for select
   using (
     exists (
-      select 1 from public.sit_down_members sm1
-      join public.sit_down_members sm2 on sm1.sit_down_id = sm2.sit_down_id
-      join public.sit_downs sd on sd.id = sm1.sit_down_id
-      where sm1.user_id = (select auth.uid())
-        and sm2.role_id = roles.id
+      select 1 from public.sit_down_participants sp1
+      join public.sit_down_participants sp2 on sp1.sit_down_id = sp2.sit_down_id
+      join public.sit_downs sd on sd.id = sp1.sit_down_id
+      where sp1.user_id = (select auth.uid())
+        and sp2.member_id = members.id
         and sd.is_commission = true
     )
   );
 
--- All roles owned by any Don in a shared commission sit-down
--- (needed so Dons can see each other's families and add roles)
-create policy "Users can view all roles of commission Dons"
-  on public.roles for select
+-- All members owned by any Don in a shared commission sit-down
+-- (needed so Dons can see each other's families and add members)
+create policy "Users can view all members of commission Dons"
+  on public.members for select
   using (
     exists (
-      select 1 from public.sit_down_members sm1
-      join public.sit_down_members sm2 on sm1.sit_down_id = sm2.sit_down_id
-      join public.sit_downs sd on sd.id = sm1.sit_down_id
-      where sm1.user_id = (select auth.uid())
-        and sm2.user_id = roles.owner_id
+      select 1 from public.sit_down_participants sp1
+      join public.sit_down_participants sp2 on sp1.sit_down_id = sp2.sit_down_id
+      join public.sit_downs sd on sd.id = sp1.sit_down_id
+      where sp1.user_id = (select auth.uid())
+        and sp2.user_id = members.owner_id
         and sd.is_commission = true
     )
   );
@@ -525,54 +525,54 @@ create policy "Users can view all roles of commission Dons"
 -- ============================================
 create table public.typing_indicators (
   sit_down_id uuid not null references public.sit_downs(id) on delete cascade,
-  role_id uuid not null references public.roles(id) on delete cascade,
-  role_name text not null,
+  member_id uuid not null references public.members(id) on delete cascade,
+  member_name text not null,
   started_by uuid not null references auth.users(id) on delete cascade,
   started_at timestamptz not null default now(),
-  primary key (sit_down_id, role_id)
+  primary key (sit_down_id, member_id)
 );
 
 alter table public.typing_indicators enable row level security;
 
-create policy "Members can view typing indicators"
+create policy "Participants can view typing indicators"
   on public.typing_indicators for select
-  using (public.is_sit_down_member(sit_down_id));
+  using (public.is_sit_down_participant(sit_down_id));
 
-create policy "Members can insert typing indicators"
+create policy "Participants can insert typing indicators"
   on public.typing_indicators for insert
   with check (
     started_by = (select auth.uid())
-    and public.is_sit_down_member(sit_down_id)
+    and public.is_sit_down_participant(sit_down_id)
   );
 
-create policy "Members can delete typing indicators"
+create policy "Participants can delete typing indicators"
   on public.typing_indicators for delete
-  using (public.is_sit_down_member(sit_down_id));
+  using (public.is_sit_down_participant(sit_down_id));
 
 create index idx_typing_indicators_sit_down on public.typing_indicators(sit_down_id);
 
 -- ============================================
--- FIX: Allow role deletion when messages exist
+-- FIX: Allow member deletion when messages exist
 -- ============================================
--- Change FK from RESTRICT (default) to SET NULL so deleting a role
--- nulls out sender_role_id on its messages instead of blocking.
-ALTER TABLE public.messages DROP CONSTRAINT messages_sender_role_id_fkey;
-ALTER TABLE public.messages ADD CONSTRAINT messages_sender_role_id_fkey
-  FOREIGN KEY (sender_role_id) REFERENCES public.roles(id) ON DELETE SET NULL;
+-- Change FK from RESTRICT (default) to SET NULL so deleting a member
+-- nulls out sender_member_id on its messages instead of blocking.
+ALTER TABLE public.messages DROP CONSTRAINT messages_sender_member_id_fkey;
+ALTER TABLE public.messages ADD CONSTRAINT messages_sender_member_id_fkey
+  FOREIGN KEY (sender_member_id) REFERENCES public.members(id) ON DELETE SET NULL;
 
--- Relax check constraint: allow sender_role_id to be null for deleted roles
+-- Relax check constraint: allow sender_member_id to be null for deleted members
 ALTER TABLE public.messages DROP CONSTRAINT sender_check;
 ALTER TABLE public.messages ADD CONSTRAINT sender_check CHECK (
-  (sender_type = 'don' AND sender_user_id IS NOT NULL AND sender_role_id IS NULL) OR
-  (sender_type = 'role' AND sender_user_id IS NULL)
+  (sender_type = 'don' AND sender_user_id IS NOT NULL AND sender_member_id IS NULL) OR
+  (sender_type = 'member' AND sender_user_id IS NULL)
 );
 
 -- ============================================
--- SEED: Role templates
+-- SEED: Member templates
 -- (These use a placeholder owner_id — update after first user signup,
 --  or create a service account user for templates)
 -- ============================================
--- Note: Template roles need an owner. In production, run these after
+-- Note: Template members need an owner. In production, run these after
 -- creating a service/admin user and replace the UUID below.
 -- For now, these templates are defined in the frontend constants
--- and cloned when users create roles from templates.
+-- and cloned when users create members from templates.

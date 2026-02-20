@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMessages } from '../../hooks/useMessages';
 import { useAIResponse, type SitDownContext } from '../../hooks/useAIResponse';
-import { extractMentionedRoleIds, hasAllMention } from '../../lib/mention-parser';
+import { buildMemberOwnerMap, extractMentionedMemberIds, hasAllMention } from '../../lib/mention-parser';
 import { MAX_ALL_MENTIONS } from '../../config/constants';
-import type { Message, Role } from '../../lib/types';
+import type { Message, Member } from '../../lib/types';
 import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
 import { TypingIndicator } from './TypingIndicator';
@@ -12,14 +12,14 @@ import { toast } from 'sonner';
 
 interface ChatViewProps {
   sitDownId: string;
-  roles: Role[];
+  members: Member[];
   sitDownContext?: SitDownContext;
   onToggleMembers?: () => void;
   showMembers?: boolean;
   onPoll?: () => void;
 }
 
-export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, showMembers, onPoll }: ChatViewProps) {
+export function ChatView({ sitDownId, members, sitDownContext, onToggleMembers, showMembers, onPoll }: ChatViewProps) {
   const { messages, typingIndicators, loading, sendMessage } = useMessages(sitDownId, onPoll);
   const ai = useAIResponse(sitDownId, sitDownContext);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -28,27 +28,33 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
   const [animationQueue, setAnimationQueue] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
+
+  // Build disambiguation map for members with duplicate names
+  const memberOwnerMap = useMemo(
+    () => sitDownContext ? buildMemberOwnerMap(members, sitDownContext.dons) : undefined,
+    [members, sitDownContext]
+  );
   const hasInitialScrolled = useRef(false);
 
   // Merge local pending (immediate on triggering client) with remote typing
-  // indicators (visible to other clients via polling). Dedup by roleId and
-  // drop indicators for roles that already have a message newer than the indicator.
+  // indicators (visible to other clients via polling). Dedup by memberId and
+  // drop indicators for members that already have a message newer than the indicator.
   const allTyping = useMemo(() => {
-    const localRoleIds = new Set(ai.pending.map((p) => p.roleId));
+    const localMemberIds = new Set(ai.pending.map((p) => p.memberId));
 
-    const latestMsgByRole = new Map<string, string>();
+    const latestMsgByMember = new Map<string, string>();
     for (const msg of messages) {
-      if (msg.sender_role_id) latestMsgByRole.set(msg.sender_role_id, msg.created_at);
+      if (msg.sender_member_id) latestMsgByMember.set(msg.sender_member_id, msg.created_at);
     }
 
     const remote = typingIndicators
-      .filter((t) => !localRoleIds.has(t.role_id))
+      .filter((t) => !localMemberIds.has(t.member_id))
       .filter((t) => {
-        const latest = latestMsgByRole.get(t.role_id);
+        const latest = latestMsgByMember.get(t.member_id);
         return !latest || new Date(latest) < new Date(t.started_at);
       })
       .filter((t) => Date.now() - new Date(t.started_at).getTime() < 120_000)
-      .map((t) => ({ roleId: t.role_id, roleName: t.role_name }));
+      .map((t) => ({ memberId: t.member_id, memberName: t.member_name }));
 
     return [...ai.pending, ...remote];
   }, [ai.pending, typingIndicators, messages]);
@@ -97,7 +103,7 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
     return () => clearInterval(interval);
   }, [animationQueue]);
 
-  // Queue new role messages for typewriter animation (skip initial load)
+  // Queue new member messages for typewriter animation (skip initial load)
   useEffect(() => {
     if (loading) {
       lastSeenIdRef.current = null;
@@ -117,13 +123,13 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
     const prevIndex = messages.findIndex((m) => m.id === prevId);
     if (prevIndex === -1) return;
 
-    const newRoleIds = messages
+    const newMemberMsgIds = messages
       .slice(prevIndex + 1)
-      .filter((m) => m.sender_type === 'role')
+      .filter((m) => m.sender_type === 'member')
       .map((m) => m.id);
 
-    if (newRoleIds.length > 0) {
-      setAnimationQueue((prev) => [...prev, ...newRoleIds]);
+    if (newMemberMsgIds.length > 0) {
+      setAnimationQueue((prev) => [...prev, ...newMemberMsgIds]);
     }
   }, [messages, loading]);
 
@@ -133,12 +139,12 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
 
   async function handleSend(content: string) {
     try {
-      // Extract mentioned role IDs
-      const mentionedIds = extractMentionedRoleIds(content, roles);
+      // Extract mentioned member IDs
+      const mentionedIds = extractMentionedMemberIds(content, members, memberOwnerMap);
 
       // @all confirmation
-      if (hasAllMention(content) && roles.length > MAX_ALL_MENTIONS) {
-        toast.error(`You can only summon ${MAX_ALL_MENTIONS} at once. You've got ${roles.length} at the table.`);
+      if (hasAllMention(content) && members.length > MAX_ALL_MENTIONS) {
+        toast.error(`You can only summon ${MAX_ALL_MENTIONS} at once. You've got ${members.length} at the table.`);
         return;
       }
 
@@ -146,11 +152,11 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
       const freshMessages = await sendMessage(content, mentionedIds, metadata);
       setReplyTo(null);
 
-      // Trigger AI responses for mentioned roles
+      // Trigger AI responses for mentioned members
       if (mentionedIds.length > 0) {
         // Find the user's message that triggered these responses
         const triggerMsg = [...freshMessages].reverse().find((m) => m.sender_type === 'don');
-        ai.triggerMultipleResponses(mentionedIds, freshMessages, roles, triggerMsg?.id);
+        ai.triggerMultipleResponses(mentionedIds, freshMessages, members, triggerMsg?.id);
       }
     } catch {
       toast.error('The message didn\'t get through.');
@@ -175,7 +181,7 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
             <div className="text-center">
               <p className="font-serif text-lg text-stone-400">The table is set.</p>
               <p className="mt-1 text-sm text-stone-600">
-                Start the conversation. Use @role to bring someone in.
+                Start the conversation. Use @member to bring someone in.
               </p>
             </div>
           </div>
@@ -189,7 +195,7 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
                   key={msg.id}
                   message={msg}
                   replyTo={msgReplyTo}
-                  animate={animationQueue[0] === msg.id && msg.sender_type === 'role'}
+                  animate={animationQueue[0] === msg.id && msg.sender_type === 'member'}
                   queued={animationQueue.indexOf(msg.id) > 0}
                   onAnimationComplete={handleAnimationComplete}
                   onReply={setReplyTo}
@@ -201,7 +207,7 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
 
         {/* Typing indicators */}
         {allTyping.map((p) => (
-          <TypingIndicator key={p.roleId} roleName={p.roleName} />
+          <TypingIndicator key={p.memberId} memberName={p.memberName} />
         ))}
 
         {/* Error */}
@@ -233,12 +239,13 @@ export function ChatView({ sitDownId, roles, sitDownContext, onToggleMembers, sh
 
       {/* Composer */}
       <MessageComposer
-        roles={roles}
+        members={members}
         onSend={handleSend}
         onToggleMembers={onToggleMembers}
         showMembers={showMembers}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
+        memberOwnerMap={memberOwnerMap}
       />
     </div>
   );

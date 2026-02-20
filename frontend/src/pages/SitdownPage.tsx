@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { useSitDown } from '../hooks/useSitDown';
-import { useRoles } from '../hooks/useRoles';
+import { useMembers } from '../hooks/useMembers';
 import { useCommission } from '../hooks/useCommission';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatView } from '../components/chat/ChatView';
@@ -15,18 +15,18 @@ export function SitdownPage() {
   const navigate = useNavigate();
   const {
     sitDown,
-    members,
-    memberRoles,
-    commissionRoles,
-    rolesByOwner,
+    participants,
+    participantMembers,
+    commissionMembers,
+    membersByOwner,
     loading,
-    addRoleMember,
-    addUserMember,
-    removeMember,
-    refreshMembers,
+    addMember,
+    addDon,
+    removeParticipant,
+    refreshParticipants,
   } = useSitDown(id);
   const { user } = useAuth();
-  const { myRoles } = useRoles();
+  const { myMembers } = useMembers();
   const { contacts } = useCommission();
   const [showMembers, setShowMembers] = useState(false);
 
@@ -54,34 +54,34 @@ export function SitdownPage() {
     );
   }
 
-  // For commission sit-downs, use all member Dons' roles as available
-  const availableRoles = sitDown.is_commission ? commissionRoles : myRoles;
+  // For commission sit-downs, use all participant Dons' members as available
+  const availableMembers = sitDown.is_commission ? commissionMembers : myMembers;
 
   // For commission sit-downs, find contacts not yet in the sit-down
-  const memberUserIds = new Set(members.filter((m) => m.user_id).map((m) => m.user_id));
+  const participantUserIds = new Set(participants.filter((p) => p.user_id).map((p) => p.user_id));
   const addableContacts = sitDown.is_commission
-    ? contacts.filter((c) => !memberUserIds.has(c.contact_user_id))
+    ? contacts.filter((c) => !participantUserIds.has(c.contact_user_id))
     : [];
 
-  // Build context so AI roles know who their Don is and what families are at the table
+  // Build context so AI members know who their Don is and what families are at the table
   const sitDownContext: SitDownContext = {
     isCommission: sitDown.is_commission,
-    dons: members
-      .filter((m) => m.user_id !== null && m.profile)
-      .map((m) => ({ userId: m.user_id!, displayName: m.profile!.display_name })),
-    allRoles: memberRoles,
+    dons: participants
+      .filter((p) => p.user_id !== null && p.profile)
+      .map((p) => ({ userId: p.user_id!, displayName: p.profile!.display_name })),
+    allMembers: participantMembers,
   };
 
   // Shared MemberList props (used by both mobile and desktop sidebars)
   const memberListProps = {
-    members,
-    availableRoles,
+    participants,
+    availableMembers,
     isCommission: sitDown.is_commission,
-    rolesByOwner: sitDown.is_commission ? rolesByOwner : undefined,
+    membersByOwner: sitDown.is_commission ? membersByOwner : undefined,
     addableContacts,
-    onAddRole: async (roleId: string) => {
+    onAddMember: async (memberId: string) => {
       try {
-        await addRoleMember(roleId);
+        await addMember(memberId);
         toast.success('A new face at the table.');
       } catch {
         toast.error('Couldn\'t bring them in.');
@@ -89,25 +89,25 @@ export function SitdownPage() {
     },
     onAddUser: sitDown.is_commission ? async (userId: string) => {
       try {
-        await addUserMember(userId);
+        await addDon(userId);
         toast.success('A new Don at the table.');
       } catch {
         toast.error('Couldn\'t bring them in.');
       }
     } : undefined,
-    onRemoveMember: async (memberId: string) => {
+    onRemoveParticipant: async (participantId: string) => {
       try {
-        await removeMember(memberId);
+        await removeParticipant(participantId);
         toast.success('They\'ve been excused.');
       } catch {
         toast.error('They won\'t leave.');
       }
     },
     onLeave: async () => {
-      const myMember = members.find((m) => m.user_id === user?.id);
-      if (!myMember) return;
+      const myParticipant = participants.find((p) => p.user_id === user?.id);
+      if (!myParticipant) return;
       try {
-        await removeMember(myMember.id);
+        await removeParticipant(myParticipant.id);
         navigate('/');
         toast.success('You\'ve left the table.');
       } catch {
@@ -139,7 +139,7 @@ export function SitdownPage() {
       </div>
 
       {/* Chat */}
-      <ChatView sitDownId={sitDown.id} roles={memberRoles} sitDownContext={sitDownContext} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} onPoll={refreshMembers} />
+      <ChatView sitDownId={sitDown.id} members={participantMembers} sitDownContext={sitDownContext} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} onPoll={refreshParticipants} />
 
       {/* Members drawer */}
       {showMembers && (

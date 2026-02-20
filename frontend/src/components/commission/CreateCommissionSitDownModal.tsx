@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { X, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import { useRoles } from '../../hooks/useRoles';
+import { useMembers } from '../../hooks/useMembers';
 import { useCommission } from '../../hooks/useCommission';
 import { useCommissionSitDowns } from '../../hooks/useCommissionSitDowns';
 import { PROVIDER_COLORS } from '../../config/constants';
@@ -12,19 +12,19 @@ interface CreateCommissionSitDownModalProps {
 }
 
 export function CreateCommissionSitDownModal({ onClose, onCreated }: CreateCommissionSitDownModalProps) {
-  const { myRoles } = useRoles();
+  const { myMembers } = useMembers();
   const { contacts } = useCommission();
   const { createCommissionSitDown } = useCommissionSitDowns();
 
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
-  function toggleRole(id: string) {
-    setSelectedRoleIds((prev) => {
+  function toggleMember(id: string) {
+    setSelectedMemberIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -52,7 +52,7 @@ export function CreateCommissionSitDownModal({ onClose, onCreated }: CreateCommi
       const sitDown = await createCommissionSitDown(
         name,
         description || undefined,
-        Array.from(selectedRoleIds),
+        Array.from(selectedMemberIds),
         Array.from(selectedContactIds)
       );
       onCreated(sitDown.id);
@@ -135,30 +135,30 @@ export function CreateCommissionSitDownModal({ onClose, onCreated }: CreateCommi
                 <label className="block text-sm font-medium text-stone-300 mb-2">
                   Bring your Members to the table
                 </label>
-                {myRoles.length === 0 ? (
+                {myMembers.length === 0 ? (
                   <p className="text-xs text-stone-500 py-2">
                     You don't have any Members yet. You can add them later.
                   </p>
                 ) : (
                   <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {myRoles.map((role) => (
+                    {myMembers.map((member) => (
                       <button
-                        key={role.id}
+                        key={member.id}
                         type="button"
-                        onClick={() => toggleRole(role.id)}
+                        onClick={() => toggleMember(member.id)}
                         className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
-                          selectedRoleIds.has(role.id)
+                          selectedMemberIds.has(member.id)
                             ? 'border-gold-600 bg-gold-600/10'
                             : 'border-stone-700 hover:bg-stone-800'
                         }`}
                       >
                         <span
-                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${PROVIDER_COLORS[role.provider]}`}
+                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
                         >
-                          {role.provider[0].toUpperCase()}
+                          {member.provider[0].toUpperCase()}
                         </span>
-                        <span className="text-sm text-stone-300 truncate">{role.name}</span>
-                        {selectedRoleIds.has(role.id) && (
+                        <span className="text-sm text-stone-300 truncate">{member.name}</span>
+                        {selectedMemberIds.has(member.id) && (
                           <Check size={14} className="ml-auto text-gold-500 shrink-0" />
                         )}
                       </button>

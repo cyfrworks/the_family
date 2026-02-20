@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { Plus, Layout } from 'lucide-react';
-import { useRoles } from '../hooks/useRoles';
-import { RoleCard } from '../components/roles/RoleCard';
-import { RoleEditor } from '../components/roles/RoleEditor';
-import { RoleTemplateSelector } from '../components/roles/RoleTemplateSelector';
-import type { Role } from '../lib/types';
+import { useMembers } from '../hooks/useMembers';
+import { MemberCard } from '../components/members/MemberCard';
+import { MemberEditor } from '../components/members/MemberEditor';
+import { MemberTemplateSelector } from '../components/members/MemberTemplateSelector';
+import type { Member } from '../lib/types';
 import { toast } from 'sonner';
 
-export function RolesPage() {
-  const { myRoles, loading, createRole, updateRole, deleteRole } = useRoles();
-  const [editing, setEditing] = useState<Role | null>(null);
+export function MembersPage() {
+  const { myMembers, loading, createMember, updateMember, deleteMember } = useMembers();
+  const [editing, setEditing] = useState<Member | null>(null);
   const [creating, setCreating] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
 
@@ -43,19 +43,19 @@ export function RolesPage() {
 
         {loading ? (
           <div className="py-12 text-center text-stone-500">Loading...</div>
-        ) : myRoles.length === 0 ? (
+        ) : myMembers.length === 0 ? (
           <div className="py-12 text-center text-stone-500">No members yet.</div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {myRoles.map((role) => (
-              <RoleCard
-                key={role.id}
-                role={role}
-                onEdit={() => setEditing(role)}
+            {myMembers.map((member) => (
+              <MemberCard
+                key={member.id}
+                member={member}
+                onEdit={() => setEditing(member)}
                 onDelete={async () => {
                   try {
-                    await deleteRole(role.id);
-                    toast.success(`${role.name} has left the Family.`);
+                    await deleteMember(member.id);
+                    toast.success(`${member.name} has left the Family.`);
                   } catch {
                     toast.error('They refused to go.');
                   }
@@ -66,15 +66,15 @@ export function RolesPage() {
         )}
 
         {(creating || editing) && (
-          <RoleEditor
-            role={editing}
+          <MemberEditor
+            member={editing}
             onSave={async (data) => {
               try {
                 if (editing) {
-                  await updateRole(editing.id, data);
+                  await updateMember(editing.id, data);
                   toast.success(`${data.name} has new orders.`);
                 } else {
-                  await createRole(data);
+                  await createMember(data);
                   toast.success(`${data.name} has joined the Family.`);
                 }
                 setEditing(null);
@@ -91,10 +91,10 @@ export function RolesPage() {
         )}
 
         {showTemplates && (
-          <RoleTemplateSelector
+          <MemberTemplateSelector
             onSelect={async (template) => {
               try {
-                await createRole({
+                await createMember({
                   name: template.name,
                   provider: template.provider,
                   model: template.model,

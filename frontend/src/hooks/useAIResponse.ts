@@ -2,50 +2,50 @@ import { useCallback, useRef, useState } from 'react';
 import { db } from '../lib/supabase';
 import { invokeAgent, CyfrError } from '../lib/cyfr';
 import { useAuth } from '../contexts/AuthContext';
-import type { Message, Role } from '../lib/types';
+import type { Message, Member } from '../lib/types';
 import { AI_RATE_LIMIT_MS, MAX_CONTEXT_MESSAGES } from '../config/constants';
 
 interface PendingResponse {
-  roleId: string;
-  roleName: string;
+  memberId: string;
+  memberName: string;
 }
 
 export interface SitDownContext {
   isCommission: boolean;
   dons: Array<{ userId: string; displayName: string }>;
-  allRoles: Role[];
+  allMembers: Member[];
 }
 
-function buildSystemPrompt(role: Role, context?: SitDownContext): string {
-  let preamble = `Your name is "${role.name}". Respond only as yourself — do not write dialogue or responses for other participants. When multiple roles are addressed in the same message, focus on the instructions directed at you.`;
+function buildSystemPrompt(member: Member, context?: SitDownContext): string {
+  let preamble = `Your name is "${member.name}". Never prefix your responses with your name or a label like "[${member.name}]:" — just respond directly with your message. Respond only as yourself — do not write dialogue or responses for other participants. When multiple roles are addressed in the same message, focus on the instructions directed at you.`;
 
   if (context && context.isCommission) {
     // Commission sit-down: ownership + who's at the table
-    const ownerDon = context.dons.find((d) => d.userId === role.owner_id);
-    const donName = ownerDon?.displayName ?? 'your owner';
+    const ownerDon = context.dons.find((d) => d.userId === member.owner_id);
+    const donName = ownerDon ? `Don ${ownerDon.displayName}` : 'your Don';
 
     preamble += `\n\nYou were created by ${donName}. You report to ${donName}.`;
 
     const familyLines: string[] = [];
     for (const don of context.dons) {
-      const donRoles = context.allRoles
-        .filter((r) => r.owner_id === don.userId)
-        .map((r) => r.name);
-      if (donRoles.length > 0) {
-        familyLines.push(`- ${don.displayName}'s team: ${donRoles.join(', ')}`);
+      const donMembers = context.allMembers
+        .filter((m) => m.owner_id === don.userId)
+        .map((m) => m.name);
+      if (donMembers.length > 0) {
+        familyLines.push(`- Don ${don.displayName}'s team: ${donMembers.join(', ')}`);
       } else {
-        familyLines.push(`- ${don.displayName} (no members at the table)`);
+        familyLines.push(`- Don ${don.displayName} (no members at the table)`);
       }
     }
 
     preamble += `\n\nThis is a group sit-down. The people and roles present are:\n${familyLines.join('\n')}`;
-    preamble += `\n\nBe helpful to everyone, but if there's a conflict of interest, defer to ${donName}.`;
+    preamble += `\n\nAlways address Dons as "Don [Name]". Be helpful to everyone, but if there's a conflict of interest, defer to ${donName}.`;
   } else if (context && context.dons.length > 0) {
     // Personal sit-down: simple ownership line
-    preamble += ` You report to ${context.dons[0].displayName}.`;
+    preamble += ` You report to Don ${context.dons[0].displayName}. Always address them as "Don ${context.dons[0].displayName}".`;
   }
 
-  return `${preamble}\n\n${role.system_prompt}`;
+  return `${preamble}\n\n${member.system_prompt}`;
 }
 
 export function useAIResponse(sitDownId: string | undefined, sitDownContext?: SitDownContext) {
@@ -55,7 +55,7 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
   const lastCallRef = useRef(0);
 
   const triggerAIResponse = useCallback(
-    async (role: Role, messages: Message[], replyToId?: string) => {
+    async (member: Member, messages: Message[], replyToId?: string) => {
       if (!sitDownId) return;
 
       // Rate limiting
@@ -66,38 +66,58 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
       }
       lastCallRef.current = Date.now();
 
-      setPending((prev) => [...prev, { roleId: role.id, roleName: role.name }]);
+      setPending((prev) => [...prev, { memberId: member.id, memberName: member.name }]);
       setError(null);
 
       // Broadcast typing state so other clients can see the indicator
       if (user) {
         await db.delete('typing_indicators', [
           { column: 'sit_down_id', op: 'eq', value: sitDownId },
-          { column: 'role_id', op: 'eq', value: role.id },
+          { column: 'member_id', op: 'eq', value: member.id },
         ]).catch(() => {});
         await db.insert('typing_indicators', {
           sit_down_id: sitDownId,
-          role_id: role.id,
-          role_name: role.name,
+          member_id: member.id,
+          member_name: member.name,
           started_by: user.id,
         }).catch(() => {});
       }
 
       try {
         // Build conversation history for the AI
-        // Only THIS role's previous messages are "assistant"; everything else
-        // (dons + other roles) is "user" context so the model doesn't try to
+        // Only THIS member's previous messages are "assistant"; everything else
+        // (dons + other members) is "user" context so the model doesn't try to
         // generate dialogue on behalf of other participants.
         const recentMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
+
+        // Detect duplicate member names so we can disambiguate in the history
+        const duplicateMemberNames = new Set<string>();
+        if (sitDownContext) {
+          const nameCounts = new Map<string, number>();
+          for (const m of sitDownContext.allMembers) {
+            nameCounts.set(m.name, (nameCounts.get(m.name) ?? 0) + 1);
+          }
+          for (const [name, count] of nameCounts) {
+            if (count > 1) duplicateMemberNames.add(name);
+          }
+        }
+
         const conversationHistory = recentMessages.map((msg) => {
-          if (msg.sender_type === 'role' && msg.sender_role_id === role.id) {
+          if (msg.sender_type === 'member' && msg.sender_member_id === member.id) {
             return { role: 'assistant' as const, content: msg.content };
           } else if (msg.sender_type === 'don') {
             const name = msg.profile?.display_name ?? 'Don';
-            return { role: 'user' as const, content: `[${name}]: ${msg.content}` };
+            return { role: 'user' as const, content: `[Don ${name}]: ${msg.content}` };
           } else {
-            const roleName = msg.role?.name ?? 'Unknown';
-            return { role: 'user' as const, content: `[${roleName}]: ${msg.content}` };
+            const memberName = msg.member?.name ?? 'Unknown';
+            // If duplicate member name, append owner Don to disambiguate
+            if (duplicateMemberNames.has(memberName) && msg.member?.owner_id && sitDownContext) {
+              const owner = sitDownContext.dons.find((d) => d.userId === msg.member?.owner_id);
+              if (owner) {
+                return { role: 'user' as const, content: `[${memberName} (Don ${owner.displayName}'s)]: ${msg.content}` };
+              }
+            }
+            return { role: 'user' as const, content: `[${memberName}]: ${msg.content}` };
           }
         });
 
@@ -112,16 +132,16 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
         }
 
         const result = await invokeAgent({
-          provider: role.provider,
-          model: role.model,
-          system: buildSystemPrompt(role, sitDownContext),
+          provider: member.provider,
+          model: member.model,
+          system: buildSystemPrompt(member, sitDownContext),
           messages: conversationHistory,
         });
 
         // Insert AI response via RPC (through CYFR Supabase catalyst)
         await db.rpc('insert_ai_message', {
           p_sit_down_id: sitDownId,
-          p_sender_role_id: role.id,
+          p_sender_member_id: member.id,
           p_content: result.content,
           p_metadata: { provider: result.provider, model: result.model, ...(replyToId && { reply_to_id: replyToId }) },
         });
@@ -133,7 +153,7 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
         try {
           await db.rpc('insert_ai_message', {
             p_sit_down_id: sitDownId,
-            p_sender_role_id: role.id,
+            p_sender_member_id: member.id,
             p_content: errorContent,
             p_metadata: { error: true, ...(replyToId && { reply_to_id: replyToId }) },
           });
@@ -141,15 +161,15 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
           // DB insert also failed — fall back to local-only error
           setError(
             aiErr instanceof CyfrError
-              ? `${role.name} couldn't respond: ${aiErr.message}`
-              : `${role.name} encountered an error`
+              ? `${member.name} couldn't respond: ${aiErr.message}`
+              : `${member.name} encountered an error`
           );
         }
       } finally {
-        setPending((prev) => prev.filter((p) => p.roleId !== role.id));
+        setPending((prev) => prev.filter((p) => p.memberId !== member.id));
         db.delete('typing_indicators', [
           { column: 'sit_down_id', op: 'eq', value: sitDownId },
-          { column: 'role_id', op: 'eq', value: role.id },
+          { column: 'member_id', op: 'eq', value: member.id },
         ]).catch(() => {});
       }
     },
@@ -157,19 +177,19 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
   );
 
   async function triggerMultipleResponses(
-    roleIds: string[],
+    memberIds: string[],
     messages: Message[],
-    allRoles: Role[],
+    allMembers: Member[],
     replyToId?: string
   ) {
     setError(null);
 
-    const roles = roleIds
-      .map((id) => allRoles.find((r) => r.id === id))
-      .filter((r): r is Role => r !== undefined);
+    const members = memberIds
+      .map((id) => allMembers.find((m) => m.id === id))
+      .filter((m): m is Member => m !== undefined);
 
     const results = await Promise.allSettled(
-      roles.map((role) => triggerAIResponse(role, messages, replyToId))
+      members.map((member) => triggerAIResponse(member, messages, replyToId))
     );
 
     const errors: string[] = [];
@@ -178,8 +198,8 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
         const err = result.reason;
         errors.push(
           err instanceof CyfrError
-            ? `${roles[i].name}: ${err.message}`
-            : `${roles[i].name} encountered an error`
+            ? `${members[i].name}: ${err.message}`
+            : `${members[i].name} encountered an error`
         );
       }
     });

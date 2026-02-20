@@ -1,62 +1,62 @@
 import { useState } from 'react';
 import { LogOut, Plus, Trash2, UserPlus } from 'lucide-react';
-import type { SitDownMember, Role, CommissionContact } from '../../lib/types';
-import type { RolesByOwner } from '../../hooks/useSitDown';
+import type { SitDownParticipant, Member, CommissionContact } from '../../lib/types';
+import type { MembersByOwner } from '../../hooks/useSitDown';
 import { PROVIDER_COLORS } from '../../config/constants';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface MemberListProps {
-  members: SitDownMember[];
-  availableRoles?: Role[];
+  participants: SitDownParticipant[];
+  availableMembers?: Member[];
   isCommission?: boolean;
-  rolesByOwner?: Map<string, RolesByOwner>;
+  membersByOwner?: Map<string, MembersByOwner>;
   addableContacts?: CommissionContact[];
-  onAddRole?: (roleId: string) => Promise<void>;
+  onAddMember?: (memberId: string) => Promise<void>;
   onAddUser?: (userId: string) => Promise<void>;
-  onRemoveMember?: (memberId: string) => Promise<void>;
+  onRemoveParticipant?: (participantId: string) => Promise<void>;
   onLeave?: () => Promise<void>;
 }
 
 export function MemberList({
-  members,
-  availableRoles,
+  participants,
+  availableMembers,
   isCommission,
-  rolesByOwner,
+  membersByOwner,
   addableContacts,
-  onAddRole,
+  onAddMember,
   onAddUser,
-  onRemoveMember,
+  onRemoveParticipant,
   onLeave,
 }: MemberListProps) {
   const { user } = useAuth();
   const [adding, setAdding] = useState(false);
 
-  // For commission sit-downs, derive the Dons list from rolesByOwner (proven correct)
-  // rather than members.filter(), which can miss Dons due to join/RLS quirks.
-  const dons = isCommission && rolesByOwner && rolesByOwner.size > 0
-    ? Array.from(rolesByOwner.entries()).map(([userId, { profile }]) => ({
-        id: members.find((m) => m.user_id === userId)?.id ?? userId,
+  // For commission sit-downs, derive the Dons list from membersByOwner (proven correct)
+  // rather than participants.filter(), which can miss Dons due to join/RLS quirks.
+  const dons = isCommission && membersByOwner && membersByOwner.size > 0
+    ? Array.from(membersByOwner.entries()).map(([userId, { profile }]) => ({
+        id: participants.find((p) => p.user_id === userId)?.id ?? userId,
         user_id: userId,
         profile,
       }))
-    : members.filter((m) => m.user_id).map((m) => ({
-        id: m.id,
-        user_id: m.user_id!,
-        profile: m.profile,
+    : participants.filter((p) => p.user_id).map((p) => ({
+        id: p.id,
+        user_id: p.user_id!,
+        profile: p.profile,
       }));
-  const roles = members.filter((m) => m.role_id);
+  const memberParticipants = participants.filter((p) => p.member_id);
 
-  const memberRoleIds = new Set(roles.map((m) => m.role_id));
-  const addableRoles = availableRoles?.filter((r) => !memberRoleIds.has(r.id)) ?? [];
+  const participantMemberIds = new Set(memberParticipants.map((p) => p.member_id));
+  const addableMembers = availableMembers?.filter((m) => !participantMemberIds.has(m.id)) ?? [];
 
-  // For commission sit-downs, show only YOUR addable roles (each Don manages their own family)
-  const groupedAddableRoles = new Map<string, { label: string; roles: Role[] }>();
-  if (isCommission && rolesByOwner && user) {
-    const myEntry = rolesByOwner.get(user.id);
+  // For commission sit-downs, show only YOUR addable members (each Don manages their own family)
+  const groupedAddableMembers = new Map<string, { label: string; members: Member[] }>();
+  if (isCommission && membersByOwner && user) {
+    const myEntry = membersByOwner.get(user.id);
     if (myEntry) {
-      const myAddable = myEntry.roles.filter((r) => !memberRoleIds.has(r.id));
+      const myAddable = myEntry.members.filter((m) => !participantMemberIds.has(m.id));
       if (myAddable.length > 0) {
-        groupedAddableRoles.set(user.id, { label: 'Your Family', roles: myAddable });
+        groupedAddableMembers.set(user.id, { label: 'Your Family', members: myAddable });
       }
     }
   }
@@ -69,16 +69,16 @@ export function MemberList({
             Dons
           </h4>
           <div className="space-y-0.5">
-            {dons.map((m) => (
-              <div key={m.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5">
+            {dons.map((d) => (
+              <div key={d.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5">
                 <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gold-600 text-[10px] font-bold text-stone-950">
-                  {m.profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                  {d.profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
                 </div>
                 <span className="text-xs text-stone-300 truncate">
-                  {m.profile?.display_name ?? 'Don'}
-                  {m.user_id === user?.id && <span className="text-stone-600"> (you)</span>}
+                  {d.profile?.display_name ?? 'Don'}
+                  {d.user_id === user?.id && <span className="text-stone-600"> (you)</span>}
                 </span>
-                {m.user_id === user?.id && onLeave && (
+                {d.user_id === user?.id && onLeave && (
                   <button
                     onClick={onLeave}
                     className="ml-auto rounded p-0.5 text-stone-600 hover:text-red-400 transition-colors"
@@ -93,23 +93,23 @@ export function MemberList({
         </div>
       )}
 
-      {/* Existing role members */}
+      {/* Existing member participants */}
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
           Members
         </h4>
         <div className="space-y-0.5">
-          {roles.map((m) => (
-            <div key={m.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5">
+          {memberParticipants.map((p) => (
+            <div key={p.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5">
               <span
-                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${m.role ? PROVIDER_COLORS[m.role.provider] : 'bg-stone-600'}`}
+                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${p.member ? PROVIDER_COLORS[p.member.provider] : 'bg-stone-600'}`}
               >
-                {m.role?.provider[0].toUpperCase() ?? '?'}
+                {p.member?.provider[0].toUpperCase() ?? '?'}
               </span>
-              <span className="text-xs text-stone-300 truncate">{m.role?.name ?? 'Unknown'}</span>
-              {onRemoveMember && (
+              <span className="text-xs text-stone-300 truncate">{p.member?.name ?? 'Unknown'}</span>
+              {onRemoveParticipant && (
                 <button
-                  onClick={() => onRemoveMember(m.id)}
+                  onClick={() => onRemoveParticipant(p.id)}
                   className="ml-auto rounded p-0.5 text-stone-600 hover:text-red-400 transition-colors"
                 >
                   <Trash2 size={12} />
@@ -117,28 +117,28 @@ export function MemberList({
               )}
             </div>
           ))}
-          {roles.length === 0 && (
+          {memberParticipants.length === 0 && (
             <p className="text-[11px] text-stone-600 px-2 py-1">No members added yet.</p>
           )}
         </div>
       </div>
 
-      {/* Add Role — grouped by family for commission sit-downs */}
-      {isCommission && groupedAddableRoles.size > 0 && onAddRole && (
+      {/* Add Member — grouped by family for commission sit-downs */}
+      {isCommission && groupedAddableMembers.size > 0 && onAddMember && (
         <>
-          {Array.from(groupedAddableRoles.entries()).map(([ownerId, { label, roles: ownerRoles }]) => (
+          {Array.from(groupedAddableMembers.entries()).map(([ownerId, { label, members: ownerMembers }]) => (
             <div key={ownerId}>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
                 {label}
               </h4>
               <div className="space-y-0.5">
-                {ownerRoles.map((role) => (
+                {ownerMembers.map((member) => (
                   <button
-                    key={role.id}
+                    key={member.id}
                     onClick={async () => {
                       setAdding(true);
                       try {
-                        await onAddRole(role.id);
+                        await onAddMember(member.id);
                       } finally {
                         setAdding(false);
                       }
@@ -148,11 +148,11 @@ export function MemberList({
                   >
                     <Plus size={12} className="text-gold-500 shrink-0" />
                     <span
-                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[role.provider]}`}
+                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
                     >
-                      {role.provider[0].toUpperCase()}
+                      {member.provider[0].toUpperCase()}
                     </span>
-                    <span className="text-xs text-stone-300 truncate">{role.name}</span>
+                    <span className="text-xs text-stone-300 truncate">{member.name}</span>
                   </button>
                 ))}
               </div>
@@ -162,19 +162,19 @@ export function MemberList({
       )}
 
       {/* Add Member — flat list for personal sit-downs */}
-      {!isCommission && addableRoles.length > 0 && onAddRole && (
+      {!isCommission && addableMembers.length > 0 && onAddMember && (
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
             Add Member
           </h4>
           <div className="space-y-0.5">
-            {addableRoles.map((role) => (
+            {addableMembers.map((member) => (
               <button
-                key={role.id}
+                key={member.id}
                 onClick={async () => {
                   setAdding(true);
                   try {
-                    await onAddRole(role.id);
+                    await onAddMember(member.id);
                   } finally {
                     setAdding(false);
                   }
@@ -184,11 +184,11 @@ export function MemberList({
               >
                 <Plus size={12} className="text-gold-500 shrink-0" />
                 <span
-                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[role.provider]}`}
+                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
                 >
-                  {role.provider[0].toUpperCase()}
+                  {member.provider[0].toUpperCase()}
                 </span>
-                <span className="text-xs text-stone-300 truncate">{role.name}</span>
+                <span className="text-xs text-stone-300 truncate">{member.name}</span>
               </button>
             ))}
           </div>

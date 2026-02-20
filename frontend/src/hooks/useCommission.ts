@@ -5,7 +5,7 @@ import { useCommissionContext } from '../contexts/CommissionContext';
 
 export function useCommission() {
   const { user } = useAuth();
-  const { contacts, pendingInvites, loading, refetch } = useCommissionContext();
+  const { contacts, pendingInvites, sentInvites, loading, refetch } = useCommissionContext();
 
   async function inviteByEmail(email: string) {
     const data = await db.rpc<CommissionContact>('invite_to_commission', {
@@ -51,6 +51,7 @@ export function useCommission() {
   return {
     contacts,
     pendingInvites,
+    sentInvites,
     loading,
     inviteByEmail,
     acceptInvite,
