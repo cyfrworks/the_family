@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { MEMBER_TEMPLATES, PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
+import { MEMBER_TEMPLATES } from '../../config/constants';
 import type { MemberTemplate } from '../../lib/types';
 
 interface MemberTemplateSelectorProps {
@@ -12,7 +12,10 @@ export function MemberTemplateSelector({ onSelect, onClose }: MemberTemplateSele
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-stone-800 bg-stone-900 shadow-xl">
         <div className="flex items-center justify-between border-b border-stone-800 px-5 py-4">
-          <h3 className="font-serif text-lg font-bold text-stone-100">The Outfit</h3>
+          <div>
+            <h3 className="font-serif text-lg font-bold text-stone-100">The Outfit</h3>
+            <p className="mt-0.5 text-xs text-stone-500">Pick a personality, then choose a model.</p>
+          </div>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-200">
             <X size={20} />
           </button>
@@ -30,11 +33,6 @@ export function MemberTemplateSelector({ onSelect, onClose }: MemberTemplateSele
                   <span className="text-2xl">{template.avatar_emoji}</span>
                   <div>
                     <h4 className="font-medium text-stone-100">{template.name}</h4>
-                    <span
-                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-white ${PROVIDER_COLORS[template.provider]}`}
-                    >
-                      {PROVIDER_LABELS[template.provider]} / {template.model}
-                    </span>
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-stone-400">{template.description}</p>

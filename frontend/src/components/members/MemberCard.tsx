@@ -10,12 +10,17 @@ interface MemberCardProps {
 }
 
 export function MemberCard({ member, onEdit, onDelete, compact }: MemberCardProps) {
+  const provider = member.catalog_model?.provider;
+  const alias = member.catalog_model?.alias;
+
   if (compact) {
     return (
       <div className="flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-2">
-        <span className={`inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}>
-          {member.provider[0].toUpperCase()}
-        </span>
+        {provider && (
+          <span className={`inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold text-white ${PROVIDER_COLORS[provider]}`}>
+            {provider[0].toUpperCase()}
+          </span>
+        )}
         <span className="text-sm text-stone-200">{member.name}</span>
       </div>
     );
@@ -31,12 +36,14 @@ export function MemberCard({ member, onEdit, onDelete, compact }: MemberCardProp
           <div>
             <h3 className="font-medium text-stone-100">{member.name}</h3>
             <div className="mt-0.5 flex items-center gap-2">
-              <span
-                className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-white ${PROVIDER_COLORS[member.provider]}`}
-              >
-                {PROVIDER_LABELS[member.provider]}
-              </span>
-              <span className="text-xs text-stone-500">{member.model}</span>
+              {provider && (
+                <span
+                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-white ${PROVIDER_COLORS[provider]}`}
+                >
+                  {PROVIDER_LABELS[provider]}
+                </span>
+              )}
+              <span className="text-xs text-stone-500">{alias ?? 'Unknown model'}</span>
             </div>
           </div>
         </div>

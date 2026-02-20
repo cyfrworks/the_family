@@ -1,5 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Settings, LogOut, X, Shield, MoreVertical, Trash2, Users, UserPlus, ChevronDown, Minus, Info } from 'lucide-react';
+import { MessageSquare, Settings, LogOut, X, Shield, MoreVertical, Trash2, Users, UserPlus, ChevronDown, Minus, Info, Crown } from 'lucide-react';
+import { RunYourFamilyButton } from '../common/RunYourFamilyButton';
+import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSitDowns } from '../../hooks/useSitDowns';
 import { useCommission } from '../../hooks/useCommission';
@@ -53,7 +55,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
-  const { profile, signOut } = useAuth();
+  const { profile, isGodfather, tier, signOut } = useAuth();
   const { sitDowns, deleteSitDown, refetch: refetchSitDowns } = useSitDowns();
   const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
   const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown } = useCommissionSitDowns();
@@ -295,6 +297,20 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <Shield size={16} />
             <span>Members</span>
           </Link>
+          {isGodfather && (
+            <Link
+              to="/admin"
+              onClick={onClose}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                location.pathname === '/admin'
+                  ? 'bg-stone-800 text-gold-500'
+                  : 'text-stone-300 hover:bg-stone-800/50 hover:text-stone-100'
+              }`}
+            >
+              <Crown size={16} />
+              <span>Admin</span>
+            </Link>
+          )}
           <Link
             to="/settings"
             onClick={onClose}
@@ -307,6 +323,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <Settings size={16} />
             <span>Settings</span>
           </Link>
+          <div className="mt-1 flex justify-center">
+            <RunYourFamilyButton compact className="w-full" />
+          </div>
         </div>
 
         {/* User */}
@@ -316,9 +335,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-600 text-sm font-bold text-stone-950">
                 {profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
               </div>
-              <span className="truncate text-sm text-stone-300">
-                {profile?.display_name ?? 'Don'}
-              </span>
+              <div className="min-w-0">
+                <span className="block truncate text-sm text-stone-300">
+                  {profile?.display_name ?? 'Don'}
+                </span>
+                <span className={`inline-flex rounded px-1.5 py-0.5 text-[9px] font-semibold ${TIER_COLORS[tier]}`}>
+                  {TIER_LABELS[tier]}
+                </span>
+              </div>
             </div>
             <button
               onClick={handleSignOut}

@@ -1,7 +1,22 @@
+export type UserTier = 'godfather' | 'boss' | 'associate';
+
+export interface CatalogModel {
+  id: string;
+  provider: Provider;
+  alias: string;
+  model: string;
+  min_tier: 'boss' | 'associate';
+  is_active: boolean;
+  sort_order: number;
+  added_by: string;
+  created_at: string;
+}
+
 export interface Profile {
   id: string;
   display_name: string;
   avatar_url: string | null;
+  tier: UserTier;
   created_at: string;
 }
 
@@ -9,13 +24,11 @@ export interface Member {
   id: string;
   owner_id: string;
   name: string;
-  provider: Provider;
-  model: string;
+  catalog_model_id: string;
   system_prompt: string;
   avatar_url: string | null;
-  is_template: boolean;
-  template_slug: string | null;
   created_at: string;
+  catalog_model?: CatalogModel;
 }
 
 export interface SitDown {
@@ -72,8 +85,6 @@ export interface CommissionContact {
 export interface MemberTemplate {
   name: string;
   slug: string;
-  provider: Provider;
-  model: string;
   system_prompt: string;
   avatar_emoji: string;
   description: string;

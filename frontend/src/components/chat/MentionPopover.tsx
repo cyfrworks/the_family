@@ -34,9 +34,9 @@ export function MentionPopover({ candidates, selectedIndex, onSelect, memberOwne
             ) : (
               <>
                 <span
-                  className={`inline-flex h-6 w-6 items-center justify-center rounded text-[10px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
+                  className={`inline-flex h-6 w-6 items-center justify-center rounded text-[10px] font-bold text-white ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
                 >
-                  {member.provider[0].toUpperCase()}
+                  {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
                 </span>
                 <span className="truncate">{member.name}</span>
                 {ownerName && (

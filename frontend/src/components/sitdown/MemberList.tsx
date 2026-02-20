@@ -102,9 +102,9 @@ export function MemberList({
           {memberParticipants.map((p) => (
             <div key={p.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5">
               <span
-                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${p.member ? PROVIDER_COLORS[p.member.provider] : 'bg-stone-600'}`}
+                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${p.member?.catalog_model ? PROVIDER_COLORS[p.member.catalog_model.provider] : 'bg-stone-600'}`}
               >
-                {p.member?.provider[0].toUpperCase() ?? '?'}
+                {p.member?.catalog_model?.provider[0].toUpperCase() ?? '?'}
               </span>
               <span className="text-xs text-stone-300 truncate">{p.member?.name ?? 'Unknown'}</span>
               {onRemoveParticipant && (
@@ -148,9 +148,9 @@ export function MemberList({
                   >
                     <Plus size={12} className="text-gold-500 shrink-0" />
                     <span
-                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
+                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
                     >
-                      {member.provider[0].toUpperCase()}
+                      {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
                     </span>
                     <span className="text-xs text-stone-300 truncate">{member.name}</span>
                   </button>
@@ -184,9 +184,9 @@ export function MemberList({
               >
                 <Plus size={12} className="text-gold-500 shrink-0" />
                 <span
-                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
+                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
                 >
-                  {member.provider[0].toUpperCase()}
+                  {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
                 </span>
                 <span className="text-xs text-stone-300 truncate">{member.name}</span>
               </button>

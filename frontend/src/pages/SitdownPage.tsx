@@ -26,7 +26,7 @@ export function SitdownPage() {
     refreshParticipants,
   } = useSitDown(id);
   const { user } = useAuth();
-  const { myMembers } = useMembers();
+  const { members: myMembers } = useMembers();
   const { contacts } = useCommission();
   const [showMembers, setShowMembers] = useState(false);
 

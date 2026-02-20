@@ -2,42 +2,46 @@ import { useState, type FormEvent } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import type { Provider, Member } from '../../lib/types';
 import { PROVIDER_LABELS } from '../../config/constants';
-import { useModels } from '../../hooks/useModels';
+import { useModelCatalog } from '../../hooks/useModelCatalog';
 
 interface MemberEditorProps {
   member: Member | null;
-  onSave: (data: { name: string; provider: Provider; model: string; system_prompt: string }) => Promise<void>;
+  prefill?: { name: string; system_prompt: string };
+  onSave: (data: { name: string; catalog_model_id: string; system_prompt: string }) => Promise<void>;
   onClose: () => void;
 }
 
-export function MemberEditor({ member, onSave, onClose }: MemberEditorProps) {
-  const { models, availableProviders, loading: modelsLoading, error: modelsError } = useModels();
-  const [name, setName] = useState(member?.name ?? '');
-  const [provider, setProvider] = useState<Provider>(member?.provider ?? 'claude');
-  const [model, setModel] = useState(member?.model ?? '');
-  const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? '');
+export function MemberEditor({ member, prefill, onSave, onClose }: MemberEditorProps) {
+  const { modelsByProvider, availableProviders, loading: catalogLoading, error: catalogError } = useModelCatalog();
+
+  const initialProvider = member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude';
+  const [name, setName] = useState(member?.name ?? prefill?.name ?? '');
+  const [provider, setProvider] = useState<Provider>(initialProvider);
+  const [catalogModelId, setCatalogModelId] = useState(member?.catalog_model_id ?? '');
+  const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? prefill?.system_prompt ?? '');
   const [saving, setSaving] = useState(false);
 
-  // Once models load, set default model if none selected
-  const providerModels = models[provider] ?? [];
-  const effectiveModel = model && (providerModels.includes(model) || member?.model === model)
-    ? model
-    : providerModels[0] ?? '';
+  const providerAliases = modelsByProvider[provider] ?? [];
 
-  if (effectiveModel !== model && effectiveModel) {
-    setModel(effectiveModel);
+  // Auto-select first alias if none selected or current selection doesn't match provider
+  const effectiveCatalogModelId = catalogModelId && providerAliases.some((a) => a.id === catalogModelId)
+    ? catalogModelId
+    : providerAliases[0]?.id ?? '';
+
+  if (effectiveCatalogModelId !== catalogModelId && effectiveCatalogModelId) {
+    setCatalogModelId(effectiveCatalogModelId);
   }
 
   function handleProviderChange(p: Provider) {
     setProvider(p);
-    setModel(models[p]?.[0] ?? '');
+    setCatalogModelId(modelsByProvider[p]?.[0]?.id ?? '');
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave({ name, provider, model, system_prompt: systemPrompt });
+      await onSave({ name, catalog_model_id: effectiveCatalogModelId, system_prompt: systemPrompt });
     } finally {
       setSaving(false);
     }
@@ -68,14 +72,14 @@ export function MemberEditor({ member, onSave, onClose }: MemberEditorProps) {
             />
           </div>
 
-          {modelsLoading ? (
+          {catalogLoading ? (
             <div className="flex items-center gap-2 text-sm text-stone-400 py-2">
               <Loader2 size={16} className="animate-spin" />
               Loading models...
             </div>
-          ) : modelsError || availableProviders.length === 0 ? (
+          ) : catalogError || availableProviders.length === 0 ? (
             <div className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-300">
-              {modelsError ?? 'No AI providers configured. Please add API keys to use AI models.'}
+              {catalogError ?? 'No models available. Ask your Godfather to add models to the catalog.'}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
@@ -96,18 +100,13 @@ export function MemberEditor({ member, onSave, onClose }: MemberEditorProps) {
               <div>
                 <label className="block text-sm font-medium text-stone-300 mb-1">Model</label>
                 <select
-                  value={effectiveModel}
-                  onChange={(e) => setModel(e.target.value)}
+                  value={effectiveCatalogModelId}
+                  onChange={(e) => setCatalogModelId(e.target.value)}
                   className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-stone-100 focus:border-gold-600 focus:outline-none focus:ring-1 focus:ring-gold-600"
                 >
-                  {member?.model && !providerModels.includes(member.model) && provider === member.provider && (
-                    <option value={member.model}>
-                      {member.model} (unavailable)
-                    </option>
-                  )}
-                  {providerModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                  {providerAliases.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.alias}
                     </option>
                   ))}
                 </select>
@@ -139,7 +138,7 @@ export function MemberEditor({ member, onSave, onClose }: MemberEditorProps) {
             </button>
             <button
               type="submit"
-              disabled={saving || modelsLoading || availableProviders.length === 0}
+              disabled={saving || catalogLoading || availableProviders.length === 0}
               className="rounded-lg bg-gold-600 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-gold-500 disabled:opacity-50 transition-colors"
             >
               {saving ? 'Saving...' : member ? 'Update' : 'Create'}

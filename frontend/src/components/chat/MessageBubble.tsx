@@ -83,12 +83,12 @@ export function MessageBubble({ message, replyTo, animate, queued, onAnimationCo
   }
 
   // Member message
-  const provider = message.member?.provider ?? 'claude';
+  const provider = message.member?.catalog_model?.provider;
 
   return (
     <div id={`msg-${message.id}`} className="flex gap-3 px-4 py-2 transition-colors duration-700 hover:bg-stone-900/50">
       <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${PROVIDER_COLORS[provider]}`}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${provider ? PROVIDER_COLORS[provider] : 'bg-stone-600'}`}
       >
         {message.member?.name?.[0]?.toUpperCase() ?? 'M'}
       </div>
@@ -97,11 +97,13 @@ export function MessageBubble({ message, replyTo, animate, queued, onAnimationCo
           <span className="text-sm font-semibold text-stone-200">
             {message.member?.name ?? 'Unknown Member'}
           </span>
-          <span
-            className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold text-white ${PROVIDER_COLORS[provider]}`}
-          >
-            {PROVIDER_LABELS[provider]}
-          </span>
+          {provider && (
+            <span
+              className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold text-white ${PROVIDER_COLORS[provider]}`}
+            >
+              {PROVIDER_LABELS[provider]}
+            </span>
+          )}
           <span className="text-[10px] text-stone-600">{time}</span>
         </div>
         {replyQuote}

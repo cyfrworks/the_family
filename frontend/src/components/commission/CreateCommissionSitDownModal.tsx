@@ -12,7 +12,7 @@ interface CreateCommissionSitDownModalProps {
 }
 
 export function CreateCommissionSitDownModal({ onClose, onCreated }: CreateCommissionSitDownModalProps) {
-  const { myMembers } = useMembers();
+  const { members: myMembers } = useMembers();
   const { contacts } = useCommission();
   const { createCommissionSitDown } = useCommissionSitDowns();
 
@@ -153,9 +153,9 @@ export function CreateCommissionSitDownModal({ onClose, onCreated }: CreateCommi
                         }`}
                       >
                         <span
-                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${PROVIDER_COLORS[member.provider]}`}
+                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
                         >
-                          {member.provider[0].toUpperCase()}
+                          {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
                         </span>
                         <span className="text-sm text-stone-300 truncate">{member.name}</span>
                         {selectedMemberIds.has(member.id) && (

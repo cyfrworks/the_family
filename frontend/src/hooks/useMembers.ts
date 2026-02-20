@@ -13,15 +13,8 @@ export function useMembers() {
     setLoading(true);
     try {
       const data = await db.select<Member>('members', {
-        select: '*',
-        filters: [
-          {
-            or: [
-              { column: 'owner_id', op: 'eq', value: user.id },
-              { column: 'is_template', op: 'eq', value: 'true' },
-            ],
-          },
-        ],
+        select: '*, catalog_model:model_catalog(*)',
+        filters: [{ column: 'owner_id', op: 'eq', value: user.id }],
         order: [{ column: 'created_at', direction: 'desc' }],
       });
       setMembers(data);
@@ -37,25 +30,24 @@ export function useMembers() {
 
   async function createMember(member: {
     name: string;
-    provider: string;
-    model: string;
+    catalog_model_id: string;
     system_prompt: string;
     avatar_url?: string;
   }) {
     if (!user) throw new Error('Not authenticated');
     const data = await db.insert<Member>('members', { ...member, owner_id: user.id });
     const created = data[0];
-    setMembers((prev) => [created, ...prev]);
+    // Refetch to get the joined catalog_model data
+    await fetchMembers();
     return created;
   }
 
-  async function updateMember(id: string, updates: Partial<Pick<Member, 'name' | 'provider' | 'model' | 'system_prompt' | 'avatar_url'>>) {
-    const data = await db.update<Member>('members', updates as Record<string, unknown>, [
+  async function updateMember(id: string, updates: Partial<Pick<Member, 'name' | 'catalog_model_id' | 'system_prompt' | 'avatar_url'>>) {
+    await db.update<Member>('members', updates as Record<string, unknown>, [
       { column: 'id', op: 'eq', value: id },
     ]);
-    const updated = data[0];
-    setMembers((prev) => prev.map((m) => (m.id === id ? updated : m)));
-    return updated;
+    // Refetch to get the joined catalog_model data
+    await fetchMembers();
   }
 
   async function deleteMember(id: string) {
@@ -63,8 +55,5 @@ export function useMembers() {
     setMembers((prev) => prev.filter((m) => m.id !== id));
   }
 
-  const myMembers = members.filter((m) => !m.is_template && m.owner_id === user?.id);
-  const templates = members.filter((m) => m.is_template);
-
-  return { members, myMembers, templates, loading, createMember, updateMember, deleteMember, refetch: fetchMembers };
+  return { members, loading, createMember, updateMember, deleteMember, refetch: fetchMembers };
 }

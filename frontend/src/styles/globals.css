@@ -16,6 +16,10 @@
   --color-gold-900: #78350f;
 }
 
+html, body, #root {
+  height: 100%;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: #44403c #1c1917;
@@ -53,4 +57,10 @@ h1, h2, h3, h4, h5, h6 {
 .typewriter-cursor {
   border-right: 2px solid #d97706;
   animation: blink-caret 0.75s step-end infinite;
+}
+
+/* Shimmer animation for Run Your Family button */
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
 }

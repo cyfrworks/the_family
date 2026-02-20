@@ -8,6 +8,7 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_url text,
+  tier text not null default 'associate' check (tier in ('godfather', 'boss', 'associate')),
   created_at timestamptz not null default now()
 );
 
@@ -18,6 +19,10 @@ create policy "Users can view all profiles"
 
 create policy "Users can update own profile"
   on public.profiles for update using ((select auth.uid()) = id);
+
+create policy "Godfathers can update any profile"
+  on public.profiles for update
+  using (exists (select 1 from public.profiles where id = (select auth.uid()) and tier = 'godfather'));
 
 -- Trigger to auto-create profile on signup
 create or replace function public.handle_new_user() returns trigger as $$
@@ -35,26 +40,71 @@ create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- ============================================
+-- MODEL CATALOG (admin-managed alias system)
+-- ============================================
+create table public.model_catalog (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  alias text not null,
+  model text not null,
+  min_tier text not null default 'associate' check (min_tier in ('boss', 'associate')),
+  is_active boolean not null default true,
+  sort_order int not null default 0,
+  added_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  unique (provider, alias)
+);
+
+alter table public.model_catalog enable row level security;
+
+create policy "Users can view catalog for their tier"
+  on public.model_catalog for select
+  using (
+    is_active = true and (
+      min_tier = 'associate'
+      or (min_tier = 'boss' and exists (
+        select 1 from public.profiles where id = (select auth.uid()) and tier in ('godfather', 'boss')
+      ))
+    )
+  );
+
+create policy "Godfathers can view all catalog entries"
+  on public.model_catalog for select
+  using (exists (select 1 from public.profiles where id = (select auth.uid()) and tier = 'godfather'));
+
+create policy "Godfathers can insert catalog entries"
+  on public.model_catalog for insert
+  with check (
+    added_by = (select auth.uid())
+    and exists (select 1 from public.profiles where id = (select auth.uid()) and tier = 'godfather')
+  );
+
+create policy "Godfathers can update catalog entries"
+  on public.model_catalog for update
+  using (exists (select 1 from public.profiles where id = (select auth.uid()) and tier = 'godfather'));
+
+create policy "Godfathers can delete catalog entries"
+  on public.model_catalog for delete
+  using (exists (select 1 from public.profiles where id = (select auth.uid()) and tier = 'godfather'));
+
+-- ============================================
 -- MEMBERS (AI persona definitions)
 -- ============================================
 create table public.members (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
-  provider text not null check (provider in ('claude', 'openai', 'gemini')),
-  model text not null,
+  catalog_model_id uuid not null references public.model_catalog(id),
   system_prompt text not null,
   avatar_url text,
-  is_template boolean not null default false,
-  template_slug text unique,
   created_at timestamptz not null default now()
 );
 
 alter table public.members enable row level security;
 
-create policy "Users can view own members and templates"
+create policy "Users can view own members"
   on public.members for select
-  using (owner_id = (select auth.uid()) or is_template = true);
+  using (owner_id = (select auth.uid()));
 
 create policy "Users can create own members"
   on public.members for insert
@@ -62,11 +112,11 @@ create policy "Users can create own members"
 
 create policy "Users can update own members"
   on public.members for update
-  using (owner_id = (select auth.uid()) and is_template = false);
+  using (owner_id = (select auth.uid()));
 
 create policy "Users can delete own members"
   on public.members for delete
-  using (owner_id = (select auth.uid()) and is_template = false);
+  using (owner_id = (select auth.uid()));
 
 -- ============================================
 -- SIT-DOWNS (conversations)
@@ -76,6 +126,7 @@ create table public.sit_downs (
   name text not null,
   description text,
   created_by uuid not null references auth.users(id) on delete cascade,
+  is_commission boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -92,10 +143,6 @@ create policy "Creator can update sit-down"
 create policy "Creator can delete sit-down"
   on public.sit_downs for delete
   using (created_by = (select auth.uid()));
-
-create policy "Participants can delete commission sit-downs"
-  on public.sit_downs for delete
-  using (is_commission = true and public.is_sit_down_participant(id));
 
 -- ============================================
 -- SIT-DOWN PARTICIPANTS (Dons and Members)
@@ -166,6 +213,10 @@ create policy "Commission participants can remove members"
 create policy "Participants can view their sit-downs"
   on public.sit_downs for select
   using (public.is_sit_down_participant(id));
+
+create policy "Participants can delete commission sit-downs"
+  on public.sit_downs for delete
+  using (is_commission = true and public.is_sit_down_participant(id));
 
 -- ============================================
 -- MESSAGES
@@ -321,9 +372,6 @@ create policy "Users can delete own contacts"
 
 create index idx_commission_contacts_user on public.commission_contacts(user_id);
 create index idx_commission_contacts_contact on public.commission_contacts(contact_user_id);
-
--- Add is_commission flag to sit_downs
-alter table public.sit_downs add column is_commission boolean not null default false;
 
 -- ============================================
 -- RPC: Invite to Commission (by email)
@@ -567,12 +615,3 @@ ALTER TABLE public.messages ADD CONSTRAINT sender_check CHECK (
   (sender_type = 'member' AND sender_user_id IS NULL)
 );
 
--- ============================================
--- SEED: Member templates
--- (These use a placeholder owner_id — update after first user signup,
---  or create a service account user for templates)
--- ============================================
--- Note: Template members need an owner. In production, run these after
--- creating a service/admin user and replace the UUID below.
--- For now, these templates are defined in the frontend constants
--- and cloned when users create members from templates.

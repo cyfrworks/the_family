@@ -26,7 +26,7 @@ export function useMessages(sitDownId: string | undefined, onPoll?: () => void) 
     if (!sitDownId) return [];
     try {
       const data = await db.select<Message>('messages', {
-        select: '*,profile:profiles!messages_profile_fk(*),member:members(*)',
+        select: '*, profile:profiles!messages_profile_fk(*), member:members(*, catalog_model:model_catalog(*))',
         filters: [{ column: 'sit_down_id', op: 'eq', value: sitDownId }],
         order: [{ column: 'created_at', direction: 'asc' }],
       });

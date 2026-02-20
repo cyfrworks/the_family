@@ -23,7 +23,7 @@ export function useSitDown(sitDownId: string | undefined) {
     let fetchedParticipants: SitDownParticipant[] = [];
     try {
       fetchedParticipants = await db.select<SitDownParticipant>('sit_down_participants', {
-        select: '*,profile:profiles!sit_down_participants_profile_fk(*),member:members(*)',
+        select: '*, profile:profiles!sit_down_participants_profile_fk(*), member:members(*, catalog_model:model_catalog(*))',
         filters: [{ column: 'sit_down_id', op: 'eq', value: sitDownId }],
       });
       setParticipants(fetchedParticipants);
@@ -39,10 +39,9 @@ export function useSitDown(sitDownId: string | undefined) {
 
         if (donUserIds.length > 0) {
           const allMembers = await db.select<Member>('members', {
-            select: '*',
+            select: '*, catalog_model:model_catalog(*)',
             filters: [
               { column: 'owner_id', op: 'in', value: `(${donUserIds.join(',')})` },
-              { column: 'is_template', op: 'eq', value: 'false' },
             ],
           });
           setCommissionMembers(allMembers);

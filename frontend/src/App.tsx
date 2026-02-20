@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { SitdownPage } from './pages/SitdownPage';
 import { MembersPage } from './pages/MembersPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { AdminPage } from './pages/AdminPage';
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="sitdown/:id" element={<SitdownPage />} />
             <Route path="members" element={<MembersPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="admin" element={<AdminPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

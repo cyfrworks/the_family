@@ -132,8 +132,8 @@ export function useAIResponse(sitDownId: string | undefined, sitDownContext?: Si
         }
 
         const result = await invokeAgent({
-          provider: member.provider,
-          model: member.model,
+          provider: member.catalog_model!.provider,
+          model: member.catalog_model!.model,
           system: buildSystemPrompt(member, sitDownContext),
           messages: conversationHistory,
         });

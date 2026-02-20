@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { auth, db, getAccessToken } from '../lib/supabase';
-import type { Profile } from '../lib/types';
+import type { Profile, UserTier } from '../lib/types';
 
 interface AuthUser {
   id: string;
@@ -10,6 +10,8 @@ interface AuthUser {
 interface AuthState {
   user: AuthUser | null;
   profile: Profile | null;
+  tier: UserTier;
+  isGodfather: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
@@ -22,6 +24,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const tier: UserTier = profile?.tier ?? 'associate';
+  const isGodfather = tier === 'godfather';
 
   // On mount, check for existing session via stored token
   useEffect(() => {
@@ -94,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, profile, tier, isGodfather, loading, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,14 +4,21 @@ import { useMembers } from '../hooks/useMembers';
 import { MemberCard } from '../components/members/MemberCard';
 import { MemberEditor } from '../components/members/MemberEditor';
 import { MemberTemplateSelector } from '../components/members/MemberTemplateSelector';
-import type { Member } from '../lib/types';
+import type { Member, MemberTemplate } from '../lib/types';
 import { toast } from 'sonner';
 
 export function MembersPage() {
-  const { myMembers, loading, createMember, updateMember, deleteMember } = useMembers();
+  const { members, loading, createMember, updateMember, deleteMember } = useMembers();
   const [editing, setEditing] = useState<Member | null>(null);
   const [creating, setCreating] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [prefill, setPrefill] = useState<{ name: string; system_prompt: string } | undefined>();
+
+  function handleTemplateSelect(template: MemberTemplate) {
+    setShowTemplates(false);
+    setPrefill({ name: template.name, system_prompt: template.system_prompt });
+    setCreating(true);
+  }
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -32,7 +39,10 @@ export function MembersPage() {
               The Outfit
             </button>
             <button
-              onClick={() => setCreating(true)}
+              onClick={() => {
+                setPrefill(undefined);
+                setCreating(true);
+              }}
               className="flex items-center gap-2 rounded-lg bg-gold-600 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-gold-500 transition-colors"
             >
               <Plus size={16} />
@@ -43,11 +53,11 @@ export function MembersPage() {
 
         {loading ? (
           <div className="py-12 text-center text-stone-500">Loading...</div>
-        ) : myMembers.length === 0 ? (
+        ) : members.length === 0 ? (
           <div className="py-12 text-center text-stone-500">No members yet.</div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {myMembers.map((member) => (
+            {members.map((member) => (
               <MemberCard
                 key={member.id}
                 member={member}
@@ -68,6 +78,7 @@ export function MembersPage() {
         {(creating || editing) && (
           <MemberEditor
             member={editing}
+            prefill={!editing ? prefill : undefined}
             onSave={async (data) => {
               try {
                 if (editing) {
@@ -79,6 +90,7 @@ export function MembersPage() {
                 }
                 setEditing(null);
                 setCreating(false);
+                setPrefill(undefined);
               } catch {
                 toast.error('Couldn\'t make it happen.');
               }
@@ -86,26 +98,14 @@ export function MembersPage() {
             onClose={() => {
               setEditing(null);
               setCreating(false);
+              setPrefill(undefined);
             }}
           />
         )}
 
         {showTemplates && (
           <MemberTemplateSelector
-            onSelect={async (template) => {
-              try {
-                await createMember({
-                  name: template.name,
-                  provider: template.provider,
-                  model: template.model,
-                  system_prompt: template.system_prompt,
-                });
-                toast.success(`${template.name} has been made.`);
-                setShowTemplates(false);
-              } catch {
-                toast.error('The initiation failed.');
-              }
-            }}
+            onSelect={handleTemplateSelect}
             onClose={() => setShowTemplates(false)}
           />
         )}

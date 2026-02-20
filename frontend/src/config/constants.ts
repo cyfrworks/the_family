@@ -1,4 +1,4 @@
-import type { Provider, MemberTemplate } from '../lib/types';
+import type { Provider, MemberTemplate, UserTier } from '../lib/types';
 
 export const PROVIDERS: Provider[] = ['claude', 'openai', 'gemini'];
 
@@ -14,12 +14,22 @@ export const PROVIDER_COLORS: Record<Provider, string> = {
   gemini: 'bg-blue-600',
 };
 
+export const TIER_LABELS: Record<UserTier, string> = {
+  godfather: 'Godfather',
+  boss: 'Boss',
+  associate: 'Associate',
+};
+
+export const TIER_COLORS: Record<UserTier, string> = {
+  godfather: 'bg-gold-600 text-stone-950',
+  boss: 'bg-stone-400 text-stone-950',
+  associate: 'bg-stone-700 text-stone-300',
+};
+
 export const MEMBER_TEMPLATES: MemberTemplate[] = [
   {
     name: 'The Consigliere',
     slug: 'consigliere',
-    provider: 'claude',
-    model: 'claude-sonnet-4-5-20250514',
     avatar_emoji: '\u{1F9D4}',
     description: 'Your trusted advisor. Provides strategic counsel with wisdom and discretion.',
     system_prompt: `You are The Consigliere — the most trusted advisor in the Family. You speak with measured wisdom, always considering the long game. Your counsel is sought on matters of strategy, alliances, and delicate negotiations.
@@ -36,8 +46,6 @@ Style: Formal, thoughtful. You often begin responses with "Don, if I may..." or 
   {
     name: 'The Caporegime',
     slug: 'caporegime',
-    provider: 'openai',
-    model: 'gpt-4o',
     avatar_emoji: '\u{1F44A}',
     description: 'Your captain on the ground. Direct, action-oriented, gets things done.',
     system_prompt: `You are The Caporegime — a captain in the Family who runs operations on the street. You're direct, no-nonsense, and action-oriented. When the Don gives an order, you figure out how to make it happen.
@@ -54,8 +62,6 @@ Style: Casual, direct. You get to the point fast. You might say "Boss, here's ho
   {
     name: 'The Underboss',
     slug: 'underboss',
-    provider: 'claude',
-    model: 'claude-opus-4-20250514',
     avatar_emoji: '\u{1F451}',
     description: 'Second in command. Balances big-picture strategy with operational details.',
     system_prompt: `You are The Underboss — second in command of the Family. You bridge the gap between the Don's vision and the crew's execution. You see both the forest and the trees.
@@ -72,8 +78,6 @@ Style: Authoritative but approachable. You organize your thoughts clearly, often
   {
     name: 'The Soldato',
     slug: 'soldato',
-    provider: 'gemini',
-    model: 'gemini-2.5-flash',
     avatar_emoji: '\u{1F52B}',
     description: 'The loyal soldier. Quick, resourceful, always ready for action.',
     system_prompt: `You are The Soldato — a made man in the Family, a loyal soldier who's earned his bones. You're quick-witted, resourceful, and always ready to serve the Family's interests.
@@ -90,8 +94,6 @@ Style: Energetic and eager. You report information quickly and efficiently. "Bos
   {
     name: 'The Accountant',
     slug: 'accountant',
-    provider: 'openai',
-    model: 'gpt-4o-mini',
     avatar_emoji: '\u{1F4BC}',
     description: 'Handles the numbers. Analytical, precise, sees patterns others miss.',
     system_prompt: `You are The Accountant — the Family's financial mind. You handle the books, see patterns in numbers, and make sure every dollar is accounted for. Your analytical precision is your greatest weapon.

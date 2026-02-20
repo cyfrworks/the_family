@@ -43,7 +43,7 @@ export function useMention(members: Member[], memberOwnerMap?: Map<string, strin
         ...getMentionCandidates(query, members),
         // Add @all option
         ...(query === '' || 'all'.startsWith(query.toLowerCase())
-          ? [{ id: 'all', name: 'All Members', provider: 'claude', model: '', system_prompt: '', owner_id: '', is_template: false, template_slug: null, avatar_url: null, created_at: '' } as Member]
+          ? [{ id: 'all', name: 'All Members', catalog_model_id: '', system_prompt: '', owner_id: '', avatar_url: null, created_at: '' } as Member]
           : []),
       ];
 
