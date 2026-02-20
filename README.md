@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="The Family" width="200" />
+  <img src="frontend/public/banner.png" alt="The Family" width="600" />
 </p>
 
 <h1 align="center">The Family</h1>
@@ -271,6 +271,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   ├── App.tsx              # Router setup
 │   │   └── main.tsx             # Entry point
 │   ├── public/
+│   │   ├── banner.png            # Wide banner image
 │   │   └── logo.png             # Project logo
 │   ├── index.html
 │   ├── vite.config.ts           # Vite + Tailwind + /cyfr proxy
