@@ -1,12 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, auth, getAccessToken, setAccessToken } from '../lib/supabase';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 export function SettingsPage() {
-  const { profile, user, signIn, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { profile, user, signIn } = useAuth();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
   const [saving, setSaving] = useState(false);
 
