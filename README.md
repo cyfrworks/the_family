@@ -62,8 +62,10 @@ Everything goes through CYFR. The frontend **never** talks to Supabase or any LL
 ## Features
 
 - **Become a Don** — sign up and build your own family of AI personas
-- **Recruit your crew** — create Members with custom system prompts, providers, and models
-- **5 made members** — built-in templates spanning Claude, OpenAI, and Gemini, ready to earn
+- **Recruit your crew** — create Members with custom system prompts and pick a model from the admin-curated catalog
+- **The Godfather runs the show** — admin-managed model catalog with aliases ("Sonnet", "Pro", "Flash") that hide raw model IDs from users. The Godfather can hot-swap the underlying model without anyone noticing
+- **User tiers** — Godfather, Boss, and Associate. Different tiers see different models in the catalog
+- **5 made members** — built-in personality templates ready to earn — just pick a model from the catalog and go
 - **Call a sit-down** — start conversation threads and bring your Members to the table
 - **@mention to speak** — `@MemberName` calls on a specific Member; `@all` lets everyone at the table have their say
 - **They're thinking it over** — typing indicators show when a Member is composing a response
@@ -75,15 +77,17 @@ Everything goes through CYFR. The frontend **never** talks to Supabase or any LL
 
 ## The Outfit — Member Templates
 
-Five made members, ready to work. Pick a template or build your own from scratch.
+Five personality templates, ready to work. Pick a template, choose a model from the catalog, and they're made.
 
-| Member | Provider | Model | Personality |
-|------|----------|-------|-------------|
-| The Consigliere | Claude | claude-sonnet-4-5 | Measured advisor, strategic counsel, speaks in metaphors |
-| The Caporegime | OpenAI | gpt-4o | Direct, action-oriented captain, street-smart |
-| The Underboss | Claude | claude-opus-4 | Second in command, balances strategy with operations |
-| The Soldato | Gemini | gemini-2.5-flash | Loyal soldier, quick-witted and resourceful |
-| The Accountant | OpenAI | gpt-4o-mini | Analytical financial mind, data-driven, precise |
+| Member | Personality |
+|------|-------------|
+| The Consigliere | Measured advisor, strategic counsel, speaks in metaphors |
+| The Caporegime | Direct, action-oriented captain, street-smart |
+| The Underboss | Second in command, balances strategy with operations |
+| The Soldato | Loyal soldier, quick-witted and resourceful |
+| The Accountant | Analytical financial mind, data-driven, precise |
+
+Templates are personality-only — the model is chosen at creation time from whatever the Godfather has published in the catalog.
 
 ## What You'll Need
 
@@ -110,7 +114,13 @@ Copy the contents of supabase/migration.sql into your
 Supabase project → SQL Editor → New Query → Run
 ```
 
-This sets up the whole operation: tables (`profiles`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`), RLS policies, triggers, and RPC functions.
+This sets up the whole operation: tables (`profiles`, `model_catalog`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`), RLS policies, triggers, and RPC functions.
+
+After running the migration, promote your first user to Godfather so they can manage the model catalog:
+
+```sql
+UPDATE public.profiles SET tier = 'godfather' WHERE id = 'YOUR_USER_UUID';
+```
 
 Then configure auth redirects:
 
@@ -172,11 +182,12 @@ The Vite dev server proxies `/cyfr` requests to `localhost:4000/mcp`, so no CORS
 ## Running the Family
 
 1. **Make your bones** — sign up on the login page
-2. **Recruit your crew** — go to Members and pick from The Outfit or create your own with a custom system prompt, provider, and model
-3. **Call a sit-down** — create a new conversation from the dashboard or sidebar
-4. **Bring them to the table** — open sit-down settings and add Members from your library
-5. **Talk business** — type messages; use `@MemberName` to hear from a specific Member, or `@all` to let everyone speak
-6. **Form the Commission** — invite other Dons by email, accept invites, and run inter-family sit-downs where multiple Dons bring their crews to the table
+2. **Become Godfather** — promote yourself via SQL (see Setup), then open the Admin page to discover models from your API keys and publish them to the catalog with user-facing aliases
+3. **Recruit your crew** — go to Members and pick from The Outfit or create your own with a custom system prompt, then choose a model from the catalog
+4. **Call a sit-down** — create a new conversation from the dashboard or sidebar
+5. **Bring them to the table** — open sit-down settings and add Members from your library
+6. **Talk business** — type messages; use `@MemberName` to hear from a specific Member, or `@all` to let everyone speak
+7. **Form the Commission** — invite other Dons by email, accept invites, and run inter-family sit-downs where multiple Dons bring their crews to the table
 
 ## How It Works
 
@@ -188,9 +199,13 @@ Sign-up and sign-in calls go through `Frontend → CYFR → Supabase catalyst �
 
 All operations (members, sit-downs, participants, messages, commissions) go through `Frontend → CYFR → Supabase catalyst → Supabase PostgREST`. Row Level Security policies keep each family's business private, with exceptions for shared commission sit-downs.
 
+### The model catalog — Admin Control
+
+The Godfather manages a `model_catalog` table that maps user-facing aliases (e.g., "Sonnet", "Pro") to actual model IDs (e.g., `claude-sonnet-4-5-20250514`). Users never see raw model IDs — they pick from aliases published by the admin. The Godfather can hot-swap the underlying model at any time; existing Members automatically use the new model on their next response. Catalog entries have a `min_tier` field that restricts access by user tier (Associate = everyone, Boss = Boss + Godfather only).
+
 ### Hearing from the crew — AI Responses
 
-When a Don @mentions a Member, the frontend maps the Member's provider to the corresponding LLM catalyst and calls it directly: `Frontend → CYFR → LLM catalyst (Claude/OpenAI/Gemini)`. The client-side `CATALYST_MAP` handles provider-specific request formatting (message structure, tool declarations, content extraction). The response is then written back to the database via the Supabase catalyst's RPC function.
+When a Don @mentions a Member, the frontend resolves the actual model ID from the Member's catalog entry, maps the provider to the corresponding LLM catalyst, and calls it directly: `Frontend → CYFR → LLM catalyst (Claude/OpenAI/Gemini)`. The client-side `CATALYST_MAP` handles provider-specific request formatting (message structure, tool declarations, content extraction). The response is then written back to the database via the Supabase catalyst's RPC function.
 
 ### Keeping an ear out — Live Updates
 
@@ -218,6 +233,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 ├── frontend/                    # React/Vite/TypeScript app
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── admin/           # ModelCatalogManager, AddModelModal, UserTierManager
 │   │   │   ├── auth/            # AuthGuard, LoginForm, SignupForm
 │   │   │   ├── chat/            # ChatView, MessageBubble, MessageComposer,
 │   │   │   │                    # MessageContent, MentionPopover,
@@ -228,9 +244,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── members/         # MemberCard, MemberEditor, MemberTemplateSelector
 │   │   │   └── sitdown/         # CreateSitdownModal, MemberList
 │   │   ├── config/
-│   │   │   └── constants.ts     # Member templates, model lists, limits
+│   │   │   └── constants.ts     # Member templates, tier labels, limits
 │   │   ├── contexts/
-│   │   │   ├── AuthContext.tsx   # Auth state, sign-up/sign-in, profile
+│   │   │   ├── AuthContext.tsx   # Auth state, sign-up/sign-in, profile, tier
 │   │   │   └── CommissionContext.tsx  # Commission contacts + polling
 │   │   ├── hooks/
 │   │   │   ├── useAIResponse.ts      # AI invocation, rate limiting, typing indicators
@@ -238,7 +254,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── useCommissionSitDowns.ts
 │   │   │   ├── useMention.ts         # @mention autocomplete state
 │   │   │   ├── useMessages.ts        # Message fetching (3s poll) + sending
-│   │   │   ├── useModels.ts          # List available LLM models
+│   │   │   ├── useModelCatalog.ts     # Catalog data for regular users
+│   │   │   ├── useModels.ts          # Discover available LLM models (admin)
+│   │   │   ├── useAdminUsers.ts      # Admin user/tier management
 │   │   │   ├── useMembers.ts         # Member CRUD
 │   │   │   ├── useSitDown.ts         # Single sit-down + members
 │   │   │   └── useSitDowns.ts        # Sit-down list
@@ -247,7 +265,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── mention-parser.ts # @mention text parsing
 │   │   │   ├── supabase.ts      # Supabase operations via CYFR catalyst
 │   │   │   └── types.ts         # TypeScript types
-│   │   ├── pages/               # Dashboard, Login, Signup, Members, Settings, Sitdown
+│   │   ├── pages/               # Dashboard, Login, Signup, Members, Settings, Sitdown, Admin
 │   │   ├── styles/
 │   │   │   └── globals.css      # Tailwind + dark mafia theme
 │   │   ├── App.tsx              # Router setup
@@ -272,7 +290,8 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── formula/                 # Formula WIT (run, invoke, mcp tools)
 │   └── reagent/                 # Reagent WIT
 ├── supabase/
-│   └── migration.sql            # Database schema, RLS policies, triggers, RPC functions
+│   ├── migration.sql            # Database schema, RLS policies, triggers, RPC functions
+│   └── migration_tiers_catalog.sql  # Production upgrade: adds tiers + model catalog
 ├── docker-compose.yml           # CYFR server container
 ├── cyfr.yaml                    # CYFR project config
 ├── .env.example                 # Environment variable template
