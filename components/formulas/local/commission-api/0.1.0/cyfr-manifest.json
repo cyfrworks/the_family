@@ -1,0 +1,108 @@
+{
+  "id": "formula:local.commission-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Commission operations: state retrieval, invite/accept/decline/remove contacts with audit trail",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["state", "invite", "accept", "decline", "remove"],
+          "description": "The commission operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address to invite (required for invite)"
+        },
+        "contact_id": {
+          "type": "string",
+          "description": "Commission contact ID (required for accept, decline)"
+        },
+        "contact_user_id": {
+          "type": "string",
+          "description": "User ID of the contact to remove (required for remove)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "contacts": {
+          "type": "array",
+          "description": "Accepted commission contacts (state action)"
+        },
+        "pending_invites": {
+          "type": "array",
+          "description": "Pending invites received (state action)"
+        },
+        "sent_invites": {
+          "type": "array",
+          "description": "Pending invites sent (state action)"
+        },
+        "commission_sit_downs": {
+          "type": "array",
+          "description": "Commission sit-downs (state action)"
+        },
+        "contact": {
+          "type": "object",
+          "description": "Affected commission contact (invite, accept, decline actions)"
+        },
+        "removed": {
+          "type": "boolean",
+          "description": "Removal confirmation (remove action)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations: commission contact queries, RPC calls"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Get commission state",
+      "description": "Fetch all commission data in one call",
+      "input": {
+        "action": "state",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "contacts": [],
+        "pending_invites": [],
+        "sent_invites": [],
+        "commission_sit_downs": []
+      }
+    },
+    {
+      "name": "Invite by email",
+      "description": "Invite a user to the commission by email",
+      "input": {
+        "action": "invite",
+        "access_token": "eyJ...",
+        "email": "boss@family.com"
+      },
+      "output": {
+        "contact": {"id": "cc-1", "status": "pending"}
+      }
+    }
+  ]
+}

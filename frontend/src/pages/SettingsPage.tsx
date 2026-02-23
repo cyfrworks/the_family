@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, auth, getAccessToken, setAccessToken } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken, setAccessToken, setRefreshToken } from '../lib/supabase';
 import { toast } from 'sonner';
 
+const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
+
 export function SettingsPage() {
-  const { profile, user, signIn } = useAuth();
+  const { profile, user } = useAuth();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
   const [saving, setSaving] = useState(false);
 
@@ -18,9 +21,20 @@ export function SettingsPage() {
     if (!profile) return;
     setSaving(true);
     try {
-      await db.update('profiles', { display_name: displayName }, [
-        { column: 'id', op: 'eq', value: profile.id },
-      ]);
+      const accessToken = getAccessToken();
+      if (!accessToken) throw new Error('Not authenticated');
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: SETTINGS_API_REF },
+        input: { action: 'update_profile', access_token: accessToken, display_name: displayName },
+        type: 'formula',
+        timeout: 30000,
+      });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
       toast.success('Your identity has been updated.');
     } catch {
       toast.error('Couldn\'t change your papers.');
@@ -42,34 +56,42 @@ export function SettingsPage() {
     }
 
     setChangingPassword(true);
-
-    // Save the active session so we can restore it if verification or update fails
-    const savedAccessToken = getAccessToken();
-    const savedRefreshToken = localStorage.getItem('sb_refresh_token');
-
     try {
-      // 1. Verify current password (side-effect: overwrites stored tokens)
-      try {
-        await auth.signIn(user.email, currentPassword);
-      } catch {
-        throw new Error('Current password is incorrect.');
+      const accessToken = getAccessToken();
+      if (!accessToken) throw new Error('Not authenticated');
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: SETTINGS_API_REF },
+        input: {
+          action: 'change_password',
+          access_token: accessToken,
+          email: user.email,
+          current_password: currentPassword,
+          new_password: newPassword,
+        },
+        type: 'formula',
+        timeout: 30000,
+      });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+      // Update stored tokens with the fresh session from the formula
+      const newAccessToken = res?.access_token as string;
+      const newRefreshToken = res?.refresh_token as string;
+      if (newAccessToken) {
+        setAccessToken(newAccessToken);
       }
-
-      // 2. Update to new password (uses the fresh token from signIn above)
-      await auth.updateUser({ password: newPassword });
-
-      // 3. Re-authenticate with the new password to establish a fresh session
-      //    This updates both the stored tokens and the AuthContext state
-      await signIn(user.email, newPassword);
+      if (newRefreshToken) {
+        setRefreshToken(newRefreshToken);
+      }
 
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       toast.success('Your password has been changed.');
     } catch (err) {
-      // Restore the original session so the user isn't locked out
-      setAccessToken(savedAccessToken);
-      if (savedRefreshToken) localStorage.setItem('sb_refresh_token', savedRefreshToken);
       toast.error(err instanceof Error ? err.message : 'Password change failed.');
     }
     setChangingPassword(false);

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { db } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken } from '../lib/supabase';
 import type { Profile, UserTier } from '../lib/types';
+
+const ADMIN_API_REF = 'formula:local.admin-api:0.1.0';
 
 export function useAdminUsers() {
   const [users, setUsers] = useState<Profile[]>([]);
@@ -9,11 +12,21 @@ export function useAdminUsers() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await db.select<Profile>('profiles', {
-        select: '*',
-        order: [{ column: 'created_at', direction: 'asc' }],
+      const accessToken = getAccessToken();
+      if (!accessToken) return;
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: ADMIN_API_REF },
+        input: { action: 'list_users', access_token: accessToken },
+        type: 'formula',
+        timeout: 30000,
       });
-      setUsers(data);
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+      setUsers((res?.users as Profile[]) || []);
     } catch {
       // ignore
     }
@@ -25,9 +38,20 @@ export function useAdminUsers() {
   }, [fetchUsers]);
 
   async function updateTier(userId: string, tier: UserTier) {
-    await db.update<Profile>('profiles', { tier } as Record<string, unknown>, [
-      { column: 'id', op: 'eq', value: userId },
-    ]);
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: ADMIN_API_REF },
+      input: { action: 'update_tier', access_token: accessToken, user_id: userId, tier },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, tier } : u)));
   }
 

@@ -1,0 +1,120 @@
+{
+  "id": "formula:local.auth-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Authentication operations (sign up, sign in, sign out, token refresh, password reset) with server-side validation",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["sign_up", "sign_in", "sign_out", "get_user", "refresh", "reset_password"],
+          "description": "The auth operation to perform"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email (required for sign_up, sign_in, reset_password)"
+        },
+        "password": {
+          "type": "string",
+          "description": "User password (required for sign_up, sign_in)"
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Display name for new user (required for sign_up)"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Current access token (required for sign_out, get_user)"
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token (required for refresh)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "access_token": {
+          "type": "string",
+          "description": "JWT access token"
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token for obtaining new access tokens"
+        },
+        "user": {
+          "type": "object",
+          "description": "User object with id, email, user_metadata"
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Whether the operation succeeded (sign_out, reset_password)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Supabase Auth operations"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Sign in",
+      "description": "Authenticate with email and password",
+      "input": {
+        "action": "sign_in",
+        "email": "don@family.com",
+        "password": "securepassword"
+      },
+      "output": {
+        "access_token": "eyJ...",
+        "refresh_token": "abc...",
+        "user": { "id": "user-1", "email": "don@family.com" }
+      }
+    },
+    {
+      "name": "Sign up",
+      "description": "Create a new account",
+      "input": {
+        "action": "sign_up",
+        "email": "new@family.com",
+        "password": "securepassword",
+        "display_name": "New Don"
+      },
+      "output": {
+        "access_token": "eyJ...",
+        "refresh_token": "abc...",
+        "user": { "id": "user-2", "email": "new@family.com" }
+      }
+    },
+    {
+      "name": "Refresh token",
+      "description": "Get a new access token using a refresh token",
+      "input": {
+        "action": "refresh",
+        "refresh_token": "abc..."
+      },
+      "output": {
+        "access_token": "eyJ...",
+        "refresh_token": "def...",
+        "user": { "id": "user-1", "email": "don@family.com" }
+      }
+    }
+  ]
+}

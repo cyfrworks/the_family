@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react';
-import { db } from '../../lib/supabase';
+import { cyfrCall } from '../../lib/cyfr';
+import { getAccessToken } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { useModels } from '../../hooks/useModels';
@@ -8,6 +9,8 @@ import { PROVIDER_LABELS, PROVIDER_COLORS } from '../../config/constants';
 import { AddModelModal } from './AddModelModal';
 import type { CatalogModel, Provider } from '../../lib/types';
 import { toast } from 'sonner';
+
+const ADMIN_API_REF = 'formula:local.admin-api:0.1.0';
 
 function EditRow({ entry, onSaved }: { entry: CatalogModel; onSaved: () => void }) {
   const { models, loading: modelsLoading } = useModels();
@@ -26,9 +29,25 @@ function EditRow({ entry, onSaved }: { entry: CatalogModel; onSaved: () => void 
   async function save() {
     setSaving(true);
     try {
-      await db.update('model_catalog', { alias, model, min_tier: minTier, sort_order: sortOrder }, [
-        { column: 'id', op: 'eq', value: entry.id },
-      ]);
+      const accessToken = getAccessToken();
+      if (!accessToken) throw new Error('Not authenticated');
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: ADMIN_API_REF },
+        input: {
+          action: 'catalog_update',
+          access_token: accessToken,
+          catalog_id: entry.id,
+          catalog_updates: { alias, model, min_tier: minTier, sort_order: sortOrder },
+        },
+        type: 'formula',
+        timeout: 30000,
+      });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
       toast.success('Catalog entry updated.');
       onSaved();
     } catch {
@@ -110,23 +129,73 @@ export function ModelCatalogManager() {
 
   async function handleAdd(data: { provider: Provider; alias: string; model: string; min_tier: 'boss' | 'associate'; sort_order: number }) {
     if (!user) return;
-    await db.insert('model_catalog', { ...data, added_by: user.id });
+
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: ADMIN_API_REF },
+      input: {
+        action: 'catalog_add',
+        access_token: accessToken,
+        catalog_entry: data,
+      },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     toast.success(`${PROVIDER_LABELS[data.provider]} / ${data.alias} added to catalog.`);
     setShowAdd(false);
     refetch();
   }
 
   async function toggleActive(entry: CatalogModel) {
-    await db.update('model_catalog', { is_active: !entry.is_active }, [
-      { column: 'id', op: 'eq', value: entry.id },
-    ]);
+    const accessToken = getAccessToken();
+    if (!accessToken) return;
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: ADMIN_API_REF },
+      input: {
+        action: 'catalog_toggle',
+        access_token: accessToken,
+        catalog_id: entry.id,
+      },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) return;
+
     refetch();
   }
 
   async function deleteEntry(entry: CatalogModel) {
     if (!confirm(`Delete "${PROVIDER_LABELS[entry.provider]} / ${entry.alias}"? Members using this model will break.`)) return;
     try {
-      await db.delete('model_catalog', [{ column: 'id', op: 'eq', value: entry.id }]);
+      const accessToken = getAccessToken();
+      if (!accessToken) throw new Error('Not authenticated');
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: ADMIN_API_REF },
+        input: {
+          action: 'catalog_delete',
+          access_token: accessToken,
+          catalog_id: entry.id,
+        },
+        type: 'formula',
+        timeout: 30000,
+      });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
       toast.success('Catalog entry deleted.');
       refetch();
     } catch {

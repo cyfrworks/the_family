@@ -109,6 +109,4 @@ Style: Precise, structured. You present information with data and figures. "The 
   },
 ];
 
-export const MAX_CONTEXT_MESSAGES = 50;
-export const AI_RATE_LIMIT_MS = 2000;
 export const MAX_ALL_MENTIONS = 5;

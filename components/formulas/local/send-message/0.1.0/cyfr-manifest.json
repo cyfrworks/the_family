@@ -1,0 +1,96 @@
+{
+  "id": "formula:local.send-message",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Orchestrates message sending: parses mentions server-side, validates business rules, inserts the message, and triggers AI responses for mentioned members",
+  "setup": {
+    "policy": {
+      "timeout": "5m",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": [
+        "sit_down_id",
+        "content",
+        "access_token"
+      ],
+      "properties": {
+        "sit_down_id": {
+          "type": "string",
+          "description": "ID of the sit-down conversation"
+        },
+        "content": {
+          "type": "string",
+          "description": "Raw message text (may contain @mentions)"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped database operations"
+        },
+        "reply_to_id": {
+          "type": "string",
+          "description": "Optional message ID this is a reply to"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "description": "ID of the inserted user message"
+        },
+        "mentioned_member_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Member IDs that were mentioned (frontend triggers AI responses for these)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations: fetch participants/members, insert message"
+      },
+      {
+        "ref": "reagent:local.mention-parser:0.1.0",
+        "reason": "Parse @mentions from message text server-side"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Send message with mentions",
+      "description": "Send a message mentioning specific members, triggering AI responses",
+      "input": {
+        "sit_down_id": "sd-123",
+        "content": "Hey @The Consigliere what do you think about this deal?",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "message_id": "msg-456",
+        "mentioned_member_ids": ["mem-1"]
+      }
+    },
+    {
+      "name": "Send message without mentions",
+      "description": "Send a plain message with no @mentions",
+      "input": {
+        "sit_down_id": "sd-123",
+        "content": "Just an observation.",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "message_id": "msg-789",
+        "mentioned_member_ids": []
+      }
+    }
+  ]
+}

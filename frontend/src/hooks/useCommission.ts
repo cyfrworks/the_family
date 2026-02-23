@@ -1,50 +1,85 @@
-import { db } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken } from '../lib/supabase';
 import type { CommissionContact } from '../lib/types';
-import { useAuth } from '../contexts/AuthContext';
 import { useCommissionContext } from '../contexts/CommissionContext';
 
+const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
+
 export function useCommission() {
-  const { user } = useAuth();
   const { contacts, pendingInvites, sentInvites, loading, refetch } = useCommissionContext();
 
   async function inviteByEmail(email: string) {
-    const data = await db.rpc<CommissionContact>('invite_to_commission', {
-      p_email: email,
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: COMMISSION_API_REF },
+      input: { action: 'invite', access_token: accessToken, email },
+      type: 'formula',
+      timeout: 30000,
     });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
-    return data;
+    return res?.contact as CommissionContact;
   }
 
   async function acceptInvite(contactId: string) {
-    const data = await db.rpc<CommissionContact>('accept_commission_invite', {
-      p_contact_id: contactId,
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: COMMISSION_API_REF },
+      input: { action: 'accept', access_token: accessToken, contact_id: contactId },
+      type: 'formula',
+      timeout: 30000,
     });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
-    return data;
+    return res?.contact as CommissionContact;
   }
 
   async function declineInvite(contactId: string) {
-    const data = await db.rpc<CommissionContact>('decline_commission_invite', {
-      p_contact_id: contactId,
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: COMMISSION_API_REF },
+      input: { action: 'decline', access_token: accessToken, contact_id: contactId },
+      type: 'formula',
+      timeout: 30000,
     });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
-    return data;
+    return res?.contact as CommissionContact;
   }
 
   async function removeContact(contactUserId: string) {
-    if (!user) return;
-    await db.delete('commission_contacts', [
-      { column: 'user_id', op: 'eq', value: user.id },
-      { column: 'contact_user_id', op: 'eq', value: contactUserId },
-    ]);
-    try {
-      await db.delete('commission_contacts', [
-        { column: 'user_id', op: 'eq', value: contactUserId },
-        { column: 'contact_user_id', op: 'eq', value: user.id },
-      ]);
-    } catch {
-      // Mirror row cleanup handled by the other user
-    }
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: COMMISSION_API_REF },
+      input: { action: 'remove', access_token: accessToken, contact_user_id: contactUserId },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
   }
 

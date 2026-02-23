@@ -1,0 +1,107 @@
+{
+  "id": "formula:local.members-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Member CRUD with server-side joins to model_catalog, input validation, and tier-based model access checks",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["list", "create", "update", "delete"],
+          "description": "The member operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "member": {
+          "type": "object",
+          "description": "Member data (required for create)",
+          "properties": {
+            "name": { "type": "string" },
+            "catalog_model_id": { "type": "string" },
+            "system_prompt": { "type": "string" },
+            "avatar_url": { "type": "string" }
+          }
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Target member ID (required for update, delete)"
+        },
+        "updates": {
+          "type": "object",
+          "description": "Fields to update (required for update)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "description": "List of members with catalog_model joined (list action)"
+        },
+        "member": {
+          "type": "object",
+          "description": "Created member (create action)"
+        },
+        "updated": {
+          "type": "array",
+          "description": "Updated member rows (update action)"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "Deletion confirmation (delete action)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations: member CRUD, model catalog lookup, profile tier check"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "List members",
+      "description": "Fetch all members for the authenticated user with catalog model data",
+      "input": {
+        "action": "list",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "members": [{"id": "mem-1", "name": "The Consigliere", "catalog_model": {"provider": "claude"}}]
+      }
+    },
+    {
+      "name": "Create member",
+      "description": "Create a new member with tier-based model access validation",
+      "input": {
+        "action": "create",
+        "access_token": "eyJ...",
+        "member": {
+          "name": "The Enforcer",
+          "catalog_model_id": "model-123",
+          "system_prompt": "You are a tough negotiator."
+        }
+      },
+      "output": {
+        "member": {"id": "mem-2", "name": "The Enforcer"}
+      }
+    }
+  ]
+}

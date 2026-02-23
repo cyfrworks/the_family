@@ -1,45 +1,24 @@
 import { cyfrCall } from './cyfr';
 
 /**
- * Supabase client that routes all operations through the CYFR Supabase catalyst.
- * No direct Supabase JS dependency — everything goes through CYFR's WASM sandbox.
+ * Auth client that routes all operations through the auth-api formula.
+ * No direct catalyst access — every auth operation goes through a named
+ * formula action with server-side validation.
+ *
+ * Database operations are NOT exposed here. All data access goes through
+ * named formula actions via cyfrCall — never raw table queries from the browser.
  */
 
-interface Filter {
-  column?: string;
-  op?: string;
-  value?: string;
-  or?: Filter[];
-  and?: Filter[];
-}
+const AUTH_API_REF = 'formula:local.auth-api:0.1.0';
 
-interface OrderBy {
-  column: string;
-  direction?: 'asc' | 'desc';
-}
-
-interface SelectParams {
-  select?: string;
-  filters?: Filter[];
-  order?: OrderBy[];
-  limit?: number;
-  offset?: number;
-}
-
-interface CatalystResult<T = unknown> {
-  status: number;
-  data: T;
-  error?: { type: string; message: string };
-}
-
-let _accessToken: string | null = localStorage.getItem('sb_access_token');
+let _accessToken: string | null = sessionStorage.getItem('sb_access_token');
 
 export function setAccessToken(token: string | null) {
   _accessToken = token;
   if (token) {
-    localStorage.setItem('sb_access_token', token);
+    sessionStorage.setItem('sb_access_token', token);
   } else {
-    localStorage.removeItem('sb_access_token');
+    sessionStorage.removeItem('sb_access_token');
   }
 }
 
@@ -47,64 +26,35 @@ export function getAccessToken(): string | null {
   return _accessToken;
 }
 
-async function callCatalyst<T = unknown>(operation: string, params: Record<string, unknown>): Promise<CatalystResult<T>> {
-  // Inject access_token for RLS if we have one
-  if (_accessToken && !params.access_token) {
-    params = { ...params, access_token: _accessToken };
+export function setRefreshToken(token: string | null) {
+  if (token) {
+    sessionStorage.setItem('sb_refresh_token', token);
+  } else {
+    sessionStorage.removeItem('sb_refresh_token');
   }
+}
 
+function getRefreshToken(): string | null {
+  return sessionStorage.getItem('sb_refresh_token');
+}
+
+async function authCall(action: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
   const result = await cyfrCall('execution', {
     action: 'run',
-    reference: { registry: 'catalyst:local.supabase:0.1.0' },
-    input: { operation, params },
-    type: 'catalyst',
+    reference: { registry: AUTH_API_REF },
+    input: { action, ...input },
+    type: 'formula',
+    timeout: 30000,
   });
 
-  return result as CatalystResult<T>;
-}
-
-function assertOk<T>(result: CatalystResult<T>, context?: string): T {
-  if (result.error) {
-    const err = result.error as Record<string, string>;
-    const msg = err.message || err.error_description || err.error || 'Unknown error';
-    throw new Error(context ? `${context}: ${msg}` : msg);
+  const res = result as Record<string, unknown> | null;
+  if (res?.error) {
+    const errObj = res.error as Record<string, string>;
+    throw new Error(errObj.message || 'Auth operation failed');
   }
-  return result.data;
+
+  return res || {};
 }
-
-// ── Database Operations ────────────────────────────────────────────
-
-export const db = {
-  async select<T = unknown>(table: string, params: SelectParams = {}): Promise<T[]> {
-    const result = await callCatalyst<T[]>('db.select', { table, ...params });
-    return assertOk(result);
-  },
-
-  async selectOne<T = unknown>(table: string, params: SelectParams = {}): Promise<T | null> {
-    const rows = await db.select<T>(table, { ...params, limit: 1 });
-    return rows[0] ?? null;
-  },
-
-  async insert<T = unknown>(table: string, body: Record<string, unknown>): Promise<T[]> {
-    const result = await callCatalyst<T[]>('db.insert', { table, body });
-    return assertOk(result);
-  },
-
-  async update<T = unknown>(table: string, body: Record<string, unknown>, filters: Filter[]): Promise<T[]> {
-    const result = await callCatalyst<T[]>('db.update', { table, body, filters });
-    return assertOk(result);
-  },
-
-  async delete(table: string, filters: Filter[]): Promise<void> {
-    const result = await callCatalyst('db.delete', { table, filters });
-    assertOk(result);
-  },
-
-  async rpc<T = unknown>(fn: string, body: Record<string, unknown> = {}): Promise<T> {
-    const result = await callCatalyst<T>('db.rpc', { function: fn, body });
-    return assertOk(result);
-  },
-};
 
 // ── Auth Operations ────────────────────────────────────────────────
 
@@ -120,92 +70,85 @@ export interface AuthTokens {
 
 export const auth = {
   async signUp(email: string, password: string, data?: Record<string, unknown>): Promise<AuthTokens> {
-    const result = await callCatalyst<Record<string, unknown>>('auth.signup', {
-      email,
-      password,
-      ...(data ? { data } : {}),
-      access_token: undefined, // don't send current token for signup
-    });
-    const raw = assertOk(result, 'Sign up failed');
+    const displayName = data?.display_name as string || '';
+    const res = await authCall('sign_up', { email, password, display_name: displayName });
 
-    // Normalize response: Supabase returns different shapes depending on
-    // whether email confirmation is enabled (user object only, no session)
-    // vs autoconfirm (full token response with nested user).
-    const tokens: AuthTokens = raw.access_token
-      ? raw as unknown as AuthTokens
-      : {
-          access_token: '',
-          refresh_token: '',
-          user: { id: (raw as { id: string }).id, email: (raw as { email: string }).email },
-        };
+    const tokens: AuthTokens = {
+      access_token: (res.access_token as string) || '',
+      refresh_token: (res.refresh_token as string) || '',
+      user: (res.user as AuthTokens['user']) || { id: '', email: '' },
+    };
 
     if (tokens.access_token) {
       setAccessToken(tokens.access_token);
-      localStorage.setItem('sb_refresh_token', tokens.refresh_token);
+      setRefreshToken(tokens.refresh_token);
     }
     return tokens;
   },
 
   async signIn(email: string, password: string): Promise<AuthTokens> {
-    const result = await callCatalyst<AuthTokens>('auth.signin', {
-      email,
-      password,
-      access_token: undefined,
-    });
-    const tokens = assertOk(result, 'Sign in failed');
+    const res = await authCall('sign_in', { email, password });
+
+    const tokens: AuthTokens = {
+      access_token: (res.access_token as string) || '',
+      refresh_token: (res.refresh_token as string) || '',
+      user: (res.user as AuthTokens['user']) || { id: '', email: '' },
+    };
+
     setAccessToken(tokens.access_token);
-    localStorage.setItem('sb_refresh_token', tokens.refresh_token);
+    setRefreshToken(tokens.refresh_token);
     return tokens;
   },
 
   async signOut(): Promise<void> {
     try {
       if (_accessToken) {
-        await callCatalyst('auth.signout', { access_token: _accessToken });
+        await authCall('sign_out', { access_token: _accessToken });
       }
     } finally {
       setAccessToken(null);
-      localStorage.removeItem('sb_refresh_token');
+      setRefreshToken(null);
     }
   },
 
   async getUser(): Promise<AuthTokens['user'] | null> {
     if (!_accessToken) return null;
     try {
-      const result = await callCatalyst<AuthTokens['user']>('auth.user', {
-        access_token: _accessToken,
-      });
-      return assertOk(result);
+      const res = await authCall('get_user', { access_token: _accessToken });
+      return (res.user as AuthTokens['user']) || null;
     } catch {
       return null;
     }
   },
 
-  async updateUser(params: { password: string }): Promise<void> {
-    const result = await callCatalyst('auth.update_user', { body: params });
-    assertOk(result, 'Password update failed');
-  },
-
   async resetPassword(email: string): Promise<void> {
-    const result = await callCatalyst('auth.reset_password', { email, access_token: undefined });
-    assertOk(result, 'Password reset failed');
+    await authCall('reset_password', { email });
   },
 
   async refresh(): Promise<AuthTokens | null> {
-    const refreshToken = localStorage.getItem('sb_refresh_token');
+    const refreshToken = getRefreshToken();
     if (!refreshToken) return null;
     try {
-      const result = await callCatalyst<AuthTokens>('auth.refresh', {
-        refresh_token: refreshToken,
-        access_token: undefined,
-      });
-      const tokens = assertOk(result);
+      const res = await authCall('refresh', { refresh_token: refreshToken });
+
+      if (res.expired) {
+        setAccessToken(null);
+        setRefreshToken(null);
+        return null;
+      }
+
+      const tokens: AuthTokens = {
+        access_token: (res.access_token as string) || '',
+        refresh_token: (res.refresh_token as string) || '',
+        user: (res.user as AuthTokens['user']) || { id: '', email: '' },
+      };
+
       setAccessToken(tokens.access_token);
-      localStorage.setItem('sb_refresh_token', tokens.refresh_token);
+      setRefreshToken(tokens.refresh_token);
       return tokens;
     } catch {
       setAccessToken(null);
-      localStorage.removeItem('sb_refresh_token');
+      setRefreshToken(null);
       return null;
     }
   },

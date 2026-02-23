@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { auth, db, getAccessToken } from '../lib/supabase';
+import { auth, getAccessToken } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
 import type { Profile, UserTier } from '../lib/types';
+
+const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
 
 interface AuthUser {
   id: string;
@@ -50,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (currentUser) {
         setUser({ id: currentUser.id, email: currentUser.email });
-        await fetchProfile(currentUser.id);
+        await fetchProfile();
       }
 
       setLoading(false);
@@ -58,12 +61,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
-  async function fetchProfile(userId: string) {
+  async function fetchProfile() {
     try {
-      const data = await db.selectOne<Profile>('profiles', {
-        select: '*',
-        filters: [{ column: 'id', op: 'eq', value: userId }],
+      const accessToken = getAccessToken();
+      if (!accessToken) return;
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: SETTINGS_API_REF },
+        input: { action: 'get_profile', access_token: accessToken },
+        type: 'formula',
+        timeout: 30000,
       });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) return;
+
+      const data = res?.profile as Profile | null;
       if (data) setProfile(data);
     } catch {
       // Profile may not exist yet (race with trigger)
@@ -74,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokens = await auth.signIn(email, password);
     const u = { id: tokens.user.id, email: tokens.user.email };
     setUser(u);
-    await fetchProfile(u.id);
+    await fetchProfile();
   }
 
   async function signUp(email: string, password: string, displayName: string) {
@@ -89,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
     // Small delay to let the profile trigger fire
     await new Promise((r) => setTimeout(r, 500));
-    await fetchProfile(u.id);
+    await fetchProfile();
   }
 
   async function signOut() {

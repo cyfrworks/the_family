@@ -1,0 +1,83 @@
+{
+  "id": "formula:local.sit-down-response-batch",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Triggers AI responses for multiple members in a sit-down. Invokes sit-down-response for each member sequentially, so typing indicators and responses appear incrementally.",
+  "setup": {
+    "policy": {
+      "timeout": "10m",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["sit_down_id", "member_ids", "access_token"],
+      "properties": {
+        "sit_down_id": {
+          "type": "string",
+          "description": "ID of the sit-down conversation"
+        },
+        "member_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "IDs of members to trigger AI responses for"
+        },
+        "reply_to_id": {
+          "type": "string",
+          "description": "Optional message ID these responses are replying to"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped database operations"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "member_id": { "type": "string" },
+              "status": { "type": "string", "enum": ["ok", "error"] },
+              "message_id": { "type": "string" },
+              "error": { "type": "string" }
+            }
+          },
+          "description": "Result for each member invocation"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "formula:local.sit-down-response:0.1.0",
+        "reason": "Invoked for each member to generate individual AI responses"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Trigger batch responses",
+      "description": "Generate AI responses for multiple mentioned members",
+      "input": {
+        "sit_down_id": "sd-123",
+        "member_ids": ["mem-1", "mem-2"],
+        "reply_to_id": "msg-456",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "results": [
+          { "member_id": "mem-1", "status": "ok", "message_id": "msg-789" },
+          { "member_id": "mem-2", "status": "ok", "message_id": "msg-790" }
+        ]
+      }
+    }
+  ]
+}

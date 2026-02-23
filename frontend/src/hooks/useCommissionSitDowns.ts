@@ -1,6 +1,9 @@
-import { db } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken } from '../lib/supabase';
 import type { SitDown } from '../lib/types';
 import { useCommissionContext } from '../contexts/CommissionContext';
+
+const SIT_DOWNS_API_REF = 'formula:local.sit-downs-api:0.1.0';
 
 export function useCommissionSitDowns() {
   const { commissionSitDowns: sitDowns, loading, refetch } = useCommissionContext();
@@ -11,18 +14,46 @@ export function useCommissionSitDowns() {
     memberIds: string[],
     contactIds: string[]
   ) {
-    const data = await db.rpc<SitDown>('create_commission_sit_down', {
-      p_name: name,
-      p_description: description ?? null,
-      p_member_ids: memberIds,
-      p_contact_ids: contactIds,
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: SIT_DOWNS_API_REF },
+      input: {
+        action: 'create_commission',
+        access_token: accessToken,
+        name,
+        description: description ?? null,
+        member_ids: memberIds,
+        contact_ids: contactIds,
+      },
+      type: 'formula',
+      timeout: 30000,
     });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
-    return data;
+    return res?.sit_down as SitDown;
   }
 
   async function deleteSitDown(id: string) {
-    await db.delete('sit_downs', [{ column: 'id', op: 'eq', value: id }]);
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: SIT_DOWNS_API_REF },
+      input: { action: 'delete_commission', access_token: accessToken, sit_down_id: id },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     await refetch();
   }
 

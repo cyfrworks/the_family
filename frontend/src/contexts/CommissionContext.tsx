@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { db } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import type { CommissionContact, SitDown } from '../lib/types';
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_FOCUSED_MS = 10_000;
+const POLL_BACKGROUND_MS = 30_000;
+const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
 
 interface CommissionState {
   contacts: CommissionContact[];
@@ -28,43 +31,28 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   const fetchAll = useCallback(async () => {
     if (!user) return;
 
-    // Fire all four queries in parallel
-    const [contactsResult, invitesResult, sentResult, sitDownsResult] = await Promise.allSettled([
-      db.select<CommissionContact>('commission_contacts', {
-        select: '*,contact_profile:profiles!commission_contacts_contact_profile_fk(*)',
-        filters: [
-          { column: 'user_id', op: 'eq', value: user.id },
-          { column: 'status', op: 'eq', value: 'accepted' },
-        ],
-        order: [{ column: 'created_at', direction: 'desc' }],
-      }),
-      db.select<CommissionContact>('commission_contacts', {
-        select: '*,profile:profiles!commission_contacts_user_profile_fk(*)',
-        filters: [
-          { column: 'contact_user_id', op: 'eq', value: user.id },
-          { column: 'status', op: 'eq', value: 'pending' },
-        ],
-        order: [{ column: 'created_at', direction: 'desc' }],
-      }),
-      db.select<CommissionContact>('commission_contacts', {
-        select: '*,contact_profile:profiles!commission_contacts_contact_profile_fk(*)',
-        filters: [
-          { column: 'user_id', op: 'eq', value: user.id },
-          { column: 'status', op: 'eq', value: 'pending' },
-        ],
-        order: [{ column: 'created_at', direction: 'desc' }],
-      }),
-      db.select<SitDown>('sit_downs', {
-        select: '*',
-        filters: [{ column: 'is_commission', op: 'eq', value: 'true' }],
-        order: [{ column: 'created_at', direction: 'desc' }],
-      }),
-    ]);
+    try {
+      const accessToken = getAccessToken();
+      if (!accessToken) return;
 
-    if (contactsResult.status === 'fulfilled') setContacts(contactsResult.value);
-    if (invitesResult.status === 'fulfilled') setPendingInvites(invitesResult.value);
-    if (sentResult.status === 'fulfilled') setSentInvites(sentResult.value);
-    if (sitDownsResult.status === 'fulfilled') setCommissionSitDowns(sitDownsResult.value);
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: COMMISSION_API_REF },
+        input: { action: 'state', access_token: accessToken },
+        type: 'formula',
+        timeout: 30000,
+      });
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) return;
+
+      setContacts((res?.contacts as CommissionContact[]) || []);
+      setPendingInvites((res?.pending_invites as CommissionContact[]) || []);
+      setSentInvites((res?.sent_invites as CommissionContact[]) || []);
+      setCommissionSitDowns((res?.commission_sit_downs as SitDown[]) || []);
+    } catch {
+      // ignore poll errors
+    }
   }, [user]);
 
   // Initial fetch
@@ -77,11 +65,29 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
     init();
   }, [fetchAll]);
 
-  // Single poll for all commission data
+  // Adaptive polling: fast when tab is focused, slow when backgrounded
   useEffect(() => {
     if (!user) return;
-    pollRef.current = setInterval(fetchAll, POLL_INTERVAL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+
+    function scheduleNext() {
+      const interval = document.visibilityState === 'visible' ? POLL_FOCUSED_MS : POLL_BACKGROUND_MS;
+      pollRef.current = setInterval(fetchAll, interval);
+    }
+
+    scheduleNext();
+
+    function handleVisibilityChange() {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (document.visibilityState === 'visible') fetchAll();
+      scheduleNext();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user, fetchAll]);
 
   return (

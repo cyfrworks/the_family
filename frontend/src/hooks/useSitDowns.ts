@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { db } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
+import { getAccessToken } from '../lib/supabase';
 import type { SitDown } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
+
+const SIT_DOWNS_API_REF = 'formula:local.sit-downs-api:0.1.0';
 
 export function useSitDowns() {
   const { user } = useAuth();
@@ -12,12 +15,21 @@ export function useSitDowns() {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await db.select<SitDown>('sit_downs', {
-        select: '*',
-        filters: [{ column: 'is_commission', op: 'eq', value: 'false' }],
-        order: [{ column: 'created_at', direction: 'desc' }],
+      const accessToken = getAccessToken();
+      if (!accessToken) return;
+
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: SIT_DOWNS_API_REF },
+        input: { action: 'list', access_token: accessToken },
+        type: 'formula',
+        timeout: 30000,
       });
-      setSitDowns(data);
+
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+      setSitDowns((res?.sit_downs as SitDown[]) || []);
     } catch (err) {
       console.error('[useSitDowns] Failed to fetch sit-downs:', err);
     }
@@ -29,16 +41,40 @@ export function useSitDowns() {
   }, [fetchSitDowns]);
 
   async function createSitDown(name: string, description?: string) {
-    const data = await db.rpc<SitDown>('create_sit_down', {
-      p_name: name,
-      p_description: description ?? null,
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: SIT_DOWNS_API_REF },
+      input: { action: 'create', access_token: accessToken, name, description: description ?? null },
+      type: 'formula',
+      timeout: 30000,
     });
-    setSitDowns((prev) => [data, ...prev]);
-    return data;
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+    const created = res?.sit_down as SitDown;
+    setSitDowns((prev) => [created, ...prev]);
+    return created;
   }
 
   async function deleteSitDown(id: string) {
-    await db.delete('sit_downs', [{ column: 'id', op: 'eq', value: id }]);
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: { registry: SIT_DOWNS_API_REF },
+      input: { action: 'delete', access_token: accessToken, sit_down_id: id },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
     setSitDowns((prev) => prev.filter((s) => s.id !== id));
   }
 

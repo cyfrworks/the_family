@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { useSitDown } from '../hooks/useSitDown';
@@ -6,8 +6,8 @@ import { useMembers } from '../hooks/useMembers';
 import { useCommission } from '../hooks/useCommission';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatView } from '../components/chat/ChatView';
-import type { SitDownContext } from '../hooks/useAIResponse';
 import { MemberList } from '../components/sitdown/MemberList';
+import { buildMemberOwnerMap } from '../lib/mention-parser';
 import { toast } from 'sonner';
 
 export function SitdownPage() {
@@ -29,6 +29,15 @@ export function SitdownPage() {
   const { members: myMembers } = useMembers();
   const { contacts } = useCommission();
   const [showMembers, setShowMembers] = useState(false);
+
+  // Build disambiguation map for members with duplicate names (for mention autocomplete)
+  // Must be before early returns to satisfy React's rules of hooks.
+  const memberOwnerMap = useMemo(() => {
+    const dons = participants
+      .filter((p) => p.user_id != null && p.profile)
+      .map((p) => ({ userId: p.user_id!, displayName: p.profile!.display_name }));
+    return buildMemberOwnerMap(participantMembers, dons);
+  }, [participants, participantMembers]);
 
   if (loading) {
     return (
@@ -62,15 +71,6 @@ export function SitdownPage() {
   const addableContacts = sitDown.is_commission
     ? contacts.filter((c) => !participantUserIds.has(c.contact_user_id))
     : [];
-
-  // Build context so AI members know who their Don is and what families are at the table
-  const sitDownContext: SitDownContext = {
-    isCommission: sitDown.is_commission,
-    dons: participants
-      .filter((p) => p.user_id != null && p.profile)
-      .map((p) => ({ userId: p.user_id!, displayName: p.profile!.display_name })),
-    allMembers: participantMembers,
-  };
 
   // Shared MemberList props (used by both mobile and desktop sidebars)
   const memberListProps = {
@@ -139,7 +139,7 @@ export function SitdownPage() {
       </div>
 
       {/* Chat */}
-      <ChatView sitDownId={sitDown.id} members={participantMembers} sitDownContext={sitDownContext} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} onPoll={refreshParticipants} />
+      <ChatView sitDownId={sitDown.id} members={participantMembers} memberOwnerMap={memberOwnerMap} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} onPoll={refreshParticipants} />
 
       {/* Members drawer */}
       {showMembers && (

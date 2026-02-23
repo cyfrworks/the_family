@@ -103,10 +103,3 @@ export interface CyfrResponse {
   };
 }
 
-export interface AgentOutput {
-  provider: string;
-  model: string;
-  content: string;
-  stream: boolean;
-  component_ref: string;
-}

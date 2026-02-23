@@ -1,0 +1,117 @@
+{
+  "id": "formula:local.sit-down-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Sit-down participant management: add/remove members and dons with proper dedup, permission checks, and commission member resolution",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token", "sit_down_id"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["get", "list_participants", "add_member", "add_don", "remove_participant"],
+          "description": "The participant operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "ID of the sit-down"
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Member ID to add (required for add_member)"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User ID of the don to add (required for add_don)"
+        },
+        "participant_id": {
+          "type": "string",
+          "description": "Participant row ID to remove (required for remove_participant)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "sit_down": {
+          "type": "object",
+          "description": "Sit-down metadata (get action)"
+        },
+        "participants": {
+          "type": "array",
+          "description": "Participants with nested profile/member/catalog_model joins"
+        },
+        "commission_members": {
+          "type": "array",
+          "description": "All members belonging to participating dons (commission sit-downs only)"
+        },
+        "is_commission": {
+          "type": "boolean",
+          "description": "Whether this sit-down is a commission"
+        },
+        "participant": {
+          "type": "array",
+          "description": "Newly added participant row(s)"
+        },
+        "already_exists": {
+          "type": "boolean",
+          "description": "True if participant was already present (dedup)"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "Deletion confirmation"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations: participant CRUD, sit-down metadata, commission member resolution"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "List participants",
+      "description": "Fetch all participants with joined profile and member data",
+      "input": {
+        "action": "list_participants",
+        "access_token": "eyJ...",
+        "sit_down_id": "sd-123"
+      },
+      "output": {
+        "participants": [{"id": "p-1", "user_id": "u-1", "profile": {"display_name": "Don"}}],
+        "commission_members": [],
+        "is_commission": false
+      }
+    },
+    {
+      "name": "Add member (dedup)",
+      "description": "Add a member participant, returns already_exists if duplicate",
+      "input": {
+        "action": "add_member",
+        "access_token": "eyJ...",
+        "sit_down_id": "sd-123",
+        "member_id": "mem-1"
+      },
+      "output": {
+        "participant": [{"id": "p-2", "member_id": "mem-1"}]
+      }
+    }
+  ]
+}

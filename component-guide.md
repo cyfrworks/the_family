@@ -81,7 +81,8 @@ Every `cyfr` CLI command maps to an MCP tool call. AI agents use the same interf
 | `cyfr run` | `execution` | `run`, `list`, `logs`, `cancel` |
 | `cyfr secret` | `secret` | `set`, `get`, `delete`, `list`, `grant`, `revoke` |
 | `cyfr policy` | `policy` | `get`, `set`, `update_field`, `delete`, `list` |
-| `cyfr search/inspect/pull/publish/register` | `component` | `search`, `inspect`, `pull`, `publish`, `register` (scan all) |
+| `cyfr search/inspect/pull/publish/register` | `component` | `search`, `inspect` (includes dependency tree), `pull`, `publish`, `register` (scan all) |
+| `cyfr setup` | `component` | `setup_plan` |
 | `cyfr audit` | `audit` | `list`, `export`, `show`, `executions` |
 | `cyfr login/logout/whoami` | `session` | `login`, `logout`, `whoami` |
 
@@ -100,6 +101,7 @@ Choose the right component type for your use case:
 | Streaming HTTP (`cyfr:http/streaming`) | No | Yes | No |
 | Secrets (`cyfr:secrets/read`) | No | Yes | No |
 | Invoke sub-components (`cyfr:formula/invoke`) | No | No | Yes |
+| Parallel invoke (`call-batch`/`poll`) | No | No | Yes |
 | Call MCP tools (`cyfr:mcp/tools`) | No | No | Yes (optional) |
 | Requires Host Policy | No | **Yes** (`allowed_domains`) | **If using MCP** (`mcp.allowed_tools`) |
 | Deterministic | Yes | No | Depends on sub-components |
@@ -167,16 +169,17 @@ Input -> [Formula] -> calls cyfr:formula/invoke -> [Sub-Component] -> ...
 - Building multi-step pipelines
 - Creating reusable workflows
 - Conditional component routing
+- Parallel invocation of multiple sub-components via `call-batch` / `poll` / `close`
 
 **Constraints**:
 - Cannot perform I/O directly (no HTTP, no secrets)
-- Invokes sub-components via `cyfr:formula/invoke` host function
+- Invokes sub-components via `cyfr:formula/invoke` host function (sequential `call` or parallel `call-batch`)
 - All orchestration logic lives inside the WASM binary (loops, conditionals, branching)
 - Opus intercepts each `invoke` call, executes the referenced component, and returns the result
 
 **Interface**: `cyfr:formula/run`
 
-**Imports**: `cyfr:formula/invoke@0.1.0`
+**Imports**: `cyfr:formula/invoke@0.1.0` (`call`, `call-batch`, `poll`, `poll-all`, `close`)
 
 ---
 
@@ -288,10 +291,30 @@ interface run {
 
 /// Host function for invoking sub-components from a Formula.
 interface invoke {
-    /// Invoke a sub-component. Request and response are JSON-encoded strings.
+    /// Invoke a sub-component synchronously. Request and response are JSON-encoded strings.
     /// Request: {"reference": {...}, "input": {...}, "type": "reagent|catalyst|formula"}
     /// Response: {"status": "completed", "output": {...}} or {"error": {...}}
     call: func(json-request: string) -> string;
+
+    /// Launch multiple sub-component invocations in parallel.
+    /// Request: {"invocations": [{"reference": {...}, "input": {...}, "type": "..."},...]}
+    /// Response: {"batch": "<handle>", "count": N} or {"error": {...}}
+    call-batch: func(json-request: string) -> string;
+
+    /// Poll a single invocation result by index.
+    /// Request: {"batch": "<handle>", "index": N}
+    /// Response: {"status": "completed"|"pending"|"error", ...}
+    poll: func(json-request: string) -> string;
+
+    /// Poll all invocations in a batch.
+    /// Request: {"batch": "<handle>"}
+    /// Response: {"results": [...], "all_done": true|false}
+    poll-all: func(json-request: string) -> string;
+
+    /// Close a batch, killing any running invocations and freeing resources.
+    /// Request: {"batch": "<handle>"}
+    /// Response: {"ok": true} (always succeeds, idempotent)
+    close: func(json-request: string) -> string;
 }
 
 world formula {
@@ -669,6 +692,92 @@ The `reference` field accepts any of the five [Component References](#component-
 | `invalid_request` | Missing `reference` (map) or `input` (map) |
 | `invalid_type` | `type` field is not `reagent`, `catalyst`, or `formula` |
 | `execution_failed` | Sub-component execution failed (timeout, panic, policy violation, etc.) |
+| `invalid_handle` | Batch handle not found (expired or never existed) |
+| `invalid_index` | Index out of range for the given batch |
+| `timeout` | Batch exceeded 300s safety timeout |
+
+### Parallel Invocation (`call-batch` / `poll` / `poll-all` / `close`)
+
+For Formulas that need to invoke multiple independent sub-components concurrently, the parallel invocation functions eliminate sequential blocking. Each sub-invocation runs through the full Executor pipeline (rate limiting, memory limits, timeout, policy) independently.
+
+#### `call-batch` — Launch Parallel Invocations
+
+Request:
+```json
+{
+  "invocations": [
+    {"reference": {"registry": "catalyst:local.claude:0.2.0"}, "input": {"prompt": "..."}, "type": "catalyst"},
+    {"reference": {"registry": "catalyst:local.openai:0.2.0"}, "input": {"prompt": "..."}, "type": "catalyst"}
+  ]
+}
+```
+
+Response:
+```json
+{"batch": "aBcDeFgH1234", "count": 2}
+```
+
+The `invocations` array must be non-empty. Each item follows the same format as a `call` request (`reference`, `input`, optional `type`). All invocations are spawned concurrently on the host and execute in parallel.
+
+#### `poll` — Check a Single Result
+
+Request:
+```json
+{"batch": "aBcDeFgH1234", "index": 0}
+```
+
+Response (pending):
+```json
+{"status": "pending"}
+```
+
+Response (completed):
+```json
+{"status": "completed", "output": {"score": 0.85}}
+```
+
+Response (error):
+```json
+{"status": "error", "error": {"type": "execution_failed", "message": "..."}}
+```
+
+#### `poll-all` — Check All Results
+
+Request:
+```json
+{"batch": "aBcDeFgH1234"}
+```
+
+Response:
+```json
+{
+  "results": [
+    {"index": 0, "status": "completed", "output": {"score": 0.85}},
+    {"index": 1, "status": "pending"}
+  ],
+  "all_done": false
+}
+```
+
+#### `close` — Cleanup a Batch
+
+Request:
+```json
+{"batch": "aBcDeFgH1234"}
+```
+
+Response:
+```json
+{"ok": true}
+```
+
+Always succeeds. Idempotent — safe to call on already-closed or unknown handles. Kills any still-running invocations and frees all resources.
+
+#### Constraints
+
+- **Batch timeout**: 300s safety net. Batches that exceed this are automatically cleaned up.
+- **No batch size limit**: Each sub-invocation goes through the full Executor pipeline, so per-component guardrails (rate limiting, memory, fuel) apply naturally.
+- **Partial failure**: If one invocation fails, others continue. Failed results appear as `"status": "error"` in poll responses.
 
 ---
 
@@ -685,7 +794,6 @@ components/
 |   |           +-- src/                 # Source code (Cargo.toml, lib.rs, wit/)
 |   |           +-- catalyst.wasm        # Built binary (always named by type)
 |   |           +-- cyfr-manifest.json   # Component manifest (required)
-|   |           +-- config.json          # Developer-defined default config
 |   |           +-- README.md            # Human-readable docs (recommended)
 |   +-- local/                           # Human dev created (Cursor, Claude Code, etc.)
 |   |   +-- my-tool/
@@ -705,7 +813,6 @@ components/
 |   |           +-- src/
 |   |           +-- reagent.wasm
 |   |           +-- cyfr-manifest.json
-|   |           +-- config.json
 |   |           +-- README.md
 |   +-- local/
 |   |   +-- my-reagent/
@@ -725,7 +832,6 @@ components/
     |           +-- src/
     |           +-- formula.wasm
     |           +-- cyfr-manifest.json
-    |           +-- config.json
     |           +-- README.md
     +-- local/
     |   +-- my-workflow/
@@ -789,7 +895,6 @@ Each component version directory should commit only the files needed to **use** 
 |------|---------|
 | `{type}.wasm` | Compiled component binary (catalyst.wasm, formula.wasm, etc.) |
 | `cyfr-manifest.json` | Component identity, imports/exports, and metadata |
-| `config.json` | Developer-recommended defaults |
 | `README.md` | Human-readable documentation |
 | `src/Cargo.toml` | Rust build manifest |
 | `src/Cargo.lock` | Pinned dependency versions |
@@ -812,7 +917,7 @@ Each component version directory should commit only the files needed to **use** 
 
 Every component must include a `cyfr-manifest.json` file alongside its WASM binary. The manifest is a machine-readable description of what the component **is** and **needs** — it is distinct from:
 
-- **`config.json`**: Metadata documenting developer-recommended defaults (see [Configuration](#configuration))
+- **`setup` manifest section**: Declares secrets and recommended policy for streamlined onboarding (see [Setup](#setup))
 - **Host Policy**: Enforcement rules (rate limits, allowed domains) set by the consumer, not the developer
 
 The manifest travels with the component through the entire lifecycle: local development, draft testing, publishing, and pull.
@@ -830,11 +935,13 @@ The manifest travels with the component through the entire lifecycle: local deve
 | `license` | string | No | SPDX identifier (e.g., `MIT`, `Apache-2.0`) |
 | `source` | enum | No | `include` (source shipped), `external` (link to repo), or `none` |
 | `wasi` | object | Yes (catalyst) | WASI capability declarations (see below) |
-| `secrets` | string[] | No | Secret names the component expects at runtime |
+| `setup` | object | No | Onboarding declarations — `setup.secrets` (secret requirements) and `setup.policy` (recommended policy values). See [Setup](#setup). |
+| `setup.secrets` | array | No | Secret requirements: each entry has `name` (string), `description` (string), `required` (bool) |
+| `setup.policy` | object | No | Recommended policy values (e.g., `allowed_domains`, `rate_limit`, `timeout`) |
 | `schema.input` | JSON Schema | Recommended | Expected input format |
 | `schema.output` | JSON Schema | Recommended | Output format |
-| `schema.config` | JSON Schema | No | Valid keys for `config.json` and component config overrides (stored in database) |
 | `defaults` | object | No | Vendor-recommended config values |
+| `dependencies` | object | No | Dependency declarations (see [Dependencies](#dependencies)) |
 | `examples` | array | No | Sample input/output pairs for consumers |
 
 **`examples` format:**
@@ -901,7 +1008,21 @@ Reagents have no `wasi` or `secrets` fields — they are fully isolated with no 
     "logging": true,
     "clocks": true
   },
-  "secrets": ["STRIPE_API_KEY"],
+  "setup": {
+    "secrets": [
+      {
+        "name": "STRIPE_API_KEY",
+        "description": "Stripe secret key from https://dashboard.stripe.com/apikeys",
+        "required": true
+      }
+    ],
+    "policy": {
+      "allowed_domains": ["api.stripe.com"],
+      "rate_limit": {"requests": 100, "window": "1m"},
+      "timeout": "30s",
+      "max_memory_bytes": 134217728
+    }
+  },
   "schema": {
     "input": {
       "type": "object",
@@ -916,13 +1037,6 @@ Reagents have no `wasi` or `secrets` fields — they are fully isolated with no 
       "properties": {
         "success": { "type": "boolean" },
         "transaction_id": { "type": "string" }
-      }
-    },
-    "config": {
-      "type": "object",
-      "properties": {
-        "max_charge_amount": { "type": "integer" },
-        "default_currency": { "type": "string" }
       }
     }
   },
@@ -946,7 +1060,7 @@ Reagents have no `wasi` or `secrets` fields — they are fully isolated with no 
 }
 ```
 
-The `secrets` array tells consumers which secrets to grant before running. The `schema.config` block documents valid keys for `config.json` and user-configurable overrides. The `defaults` block provides vendor-recommended values.
+The `setup` section declares everything needed for onboarding: `setup.secrets` lists the secrets the component requires (with descriptions to help users obtain them), and `setup.policy` provides vendor-recommended policy values. The `defaults` block documents hardcoded default values for reference.
 
 **Formula** (mid — composition via host function):
 
@@ -957,6 +1071,28 @@ The `secrets` array tells consumers which secrets to grant before running. The `
   "version": "1.0.0",
   "description": "Orchestrates sentiment analysis and trading execution",
   "license": "MIT",
+  "setup": {
+    "policy": {
+      "timeout": "5m",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "reagent:cyfr.sentiment:1.0.0",
+        "optional": false,
+        "reason": "Sentiment analysis for market data"
+      },
+      {
+        "ref": "catalyst:local.exchange:1.0.0",
+        "optional": false,
+        "reason": "Trading execution API"
+      }
+    ]
+  },
   "schema": {
     "input": {
       "type": "object",
@@ -976,37 +1112,134 @@ The `secrets` array tells consumers which secrets to grant before running. The `
 }
 ```
 
-Formulas have no `wasi` or `secrets` — they invoke sub-components via `cyfr:formula/invoke`, and each sub-component runs in its own sandbox. Sub-component references are encoded in the WASM binary, not the manifest.
+Formulas have no `wasi` or `secrets` — they invoke sub-components via `cyfr:formula/invoke`, and each sub-component runs in its own sandbox. The `dependencies` field declares which sub-components the formula needs at runtime.
 
 > **See also**: [Compendium docs](docs/services/compendium.md#component-manifest) for OCI packaging details, [Locus docs](docs/services/locus.md) for capability validation at import time.
 
 ---
 
-## Configuration
+## Dependencies
 
-Component configuration uses two JSON files alongside the binary. These files serve as **metadata and documentation** — they communicate the developer's intended defaults and the user's project-specific overrides.
+Formulas invoke sub-components at runtime via `cyfr:formula/invoke`. The `dependencies` manifest field declares these relationships so the system can **auto-pull** them when you pull a formula and **block execution** if required dependencies are missing.
 
-| Source | Purpose | Who Creates It | Storage |
-|--------|---------|----------------|---------|
-| `config.json` | Developer-recommended defaults | Component developer | Immutable, in component directory |
-| Component config overrides | User/project-specific overrides | User/project team | Mutable, in `data/cyfr.db` → `component_configs` table |
+### Schema
 
-**Current behavior**: `config.json` exists as an **immutable artifact alongside the binary** in the component version directory. User overrides are stored in SQLite (`data/cyfr.db` → `component_configs` table) to keep the component directory immutable for signature integrity and OCI distribution. There is no WIT interface or host function that injects config into the WASM binary at runtime. Components that need configurable values should:
+```json
+{
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.claude:0.1.0",
+        "optional": false,
+        "reason": "Claude API provider"
+      }
+    ],
+    "dynamic": {
+      "discovery": "component.search",
+      "description": "Discovers providers at runtime via MCP search",
+      "typical_types": ["catalyst"]
+    }
+  }
+}
+```
+
+**`dependencies.static[]`** — components known at build time:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ref` | string | Yes | Canonical component ref (`type:namespace.name:version`). **Exact version required** — no ranges, no constraints, no `latest` |
+| `optional` | bool | No | Default `false`. If `true`, pull warns but doesn't fail; execution proceeds |
+| `reason` | string | No | Human-readable explanation of why this dependency is needed |
+
+**`dependencies.dynamic`** — informational only, for formulas that discover components at runtime:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `discovery` | string | Yes | MCP tool/action used for discovery |
+| `description` | string | Yes | Explanation of discovery behavior |
+| `typical_types` | string[] | No | Common component types discovered |
+
+### Version Resolution
+
+Strict exact match only. The version in `ref` is the required version. To upgrade a dependency, update the `ref` in the manifest. No semver ranges or constraint operators are supported.
+
+### Behavior
+
+- **`cyfr pull`**: After pulling a component, automatically pulls any missing required static dependencies. Optional missing deps produce a warning.
+- **`cyfr run`** (formulas): Before executing a formula, Opus checks that all required static dependencies are present. If any are missing, execution is blocked with an actionable error message.
+- **`cyfr inspect`**: Returns component details including the full dependency tree with availability annotations (when deps declared).
+- **`cyfr register`**: Indexes dependencies from the manifest into the local database for fast lookup.
+
+### Example: Formula with Static Dependencies
+
+```bash
+# Pull a formula — its dependencies are auto-pulled
+cyfr pull f:local.list-models:0.1.0
+# Output:
+#   status: ready
+#   Pulled 3 dependencies: catalyst:local.claude:0.1.0, catalyst:local.openai:0.1.0, catalyst:local.gemini:0.1.0
+
+# Inspect dependency tree
+cyfr inspect f:local.list-models:0.1.0
+```
+
+---
+
+## Setup
+
+The `setup` manifest section consolidates everything a component needs for onboarding into a single declaration. Instead of separate `config.json` files and manual secret/policy configuration, component developers declare their requirements directly in `cyfr-manifest.json`, and consumers run `cyfr setup` to apply them.
+
+### What `setup` Replaces
+
+| Old Approach | New Approach |
+|---|---|
+| Top-level `secrets` array in manifest | `setup.secrets` — richer declarations with `name`, `description`, and `required` |
+| `config.json` alongside the binary | Removed — use `defaults` for documented values, `setup.policy` for recommended policy |
+| `schema.config` in manifest | Removed — policy values belong in `setup.policy` |
+| `cyfr config set` / `cyfr config show` | `cyfr setup` — reads the manifest and applies secrets + policy in one step |
+
+### Manifest `setup` Section
+
+The `setup` section has two optional sub-fields:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `setup.secrets` | array | Secret requirements. Each entry: `name` (string), `description` (string, helps users obtain the value), `required` (bool) |
+| `setup.policy` | object | Recommended Host Policy values (e.g., `allowed_domains`, `rate_limit`, `timeout`, `max_memory_bytes`) |
+
+> **Note on Generic Policies:** While Opus provides default execution limits for all components (e.g., 60s timeout for Reagents, 3m for Catalysts), `cyfr setup` relies exclusively on the manifest's `setup.policy` block to extract and configure developer-recommended overrides. If you want your component to default to a 5m timeout or higher `max_memory_bytes` when users run `cyfr setup`, you **must** explicitly declare those generic policies in `setup.policy`.
+
+Components that need configurable values should:
 
 1. **Accept them as part of the `input` JSON** — the caller passes config values in the request
 2. **Read them via `cyfr:secrets/read`** — for sensitive values (API keys, tokens)
 3. **Hardcode sensible defaults in source code** — this is the recommended pattern for catalysts
 
-The manifest `defaults` block documents vendor-recommended values for human and tooling reference. The `schema.config` block documents valid configuration keys.
+The manifest `defaults` block documents vendor-recommended values for human and tooling reference.
 
-> **Config vs Host Policy**: Configuration is developer-facing documentation. Host Policy (`allowed_domains`, `rate_limit`, `trusted_signers`) is enforced by Opus at the WASI boundary — the component never sees it.
+> **Setup vs Host Policy**: `setup.policy` is the component developer's *recommendation*. Host Policy is what is actually *enforced* by Opus at the WASI boundary. `cyfr setup` bridges the two by applying the recommended values as the initial policy.
 
-### Example: API Catalyst Config
+### Example: API Catalyst Setup
 
-**`cyfr-manifest.json`** (relevant section for an API catalyst):
+**`cyfr-manifest.json`** (relevant sections for an API catalyst):
 
 ```json
 {
+  "setup": {
+    "secrets": [
+      {
+        "name": "API_KEY",
+        "description": "API key from https://api.example.com/settings/keys",
+        "required": true
+      }
+    ],
+    "policy": {
+      "allowed_domains": ["api.example.com"],
+      "rate_limit": {"requests": 100, "window": "1m"},
+      "timeout": "30s",
+      "max_memory_bytes": 134217728
+    }
+  },
   "defaults": {
     "base_url": "https://api.example.com",
     "api_version": "v1",
@@ -1019,23 +1252,24 @@ The manifest `defaults` block documents vendor-recommended values for human and 
 
 In a catalyst's source code, values like these would typically be hardcoded (e.g., `const BASE_URL: &str = "https://api.example.com/v1/models"`). The manifest `defaults` block documents what those hardcoded values are so consumers and tooling can reference them.
 
-**`config.json`** (ships with the component — documents operational defaults):
+### `cyfr setup` Workflow
 
-```json
-{
-  "base_url": "https://api.example.com",
-  "api_version": "v1",
-  "default_model": "default"
-}
-```
-
-**User overrides** (project-specific, managed via `cyfr config set`):
+Running `cyfr setup` reads the manifest's `setup` section and walks the user through onboarding:
 
 ```bash
-# Set overrides (stored in data/cyfr.db → component_configs)
-cyfr config set c:local.my-catalyst:1.0.0 default_model fast
-cyfr config set c:local.my-catalyst:1.0.0 max_retries 3
+# Run setup for a component (interactive — prompts for secrets, confirms policy)
+cyfr setup c:local.my-catalyst:1.0.0
+
+# Via MCP (returns a setup plan for programmatic application)
+{"tool": "component", "action": "setup_plan", "ref": "c:local.my-catalyst:1.0.0"}
 ```
+
+The setup command:
+
+1. Reads `setup.secrets` and prompts for each secret value (or confirms existing ones)
+2. Stores secrets via Sanctum and grants the component access
+3. Reads `setup.policy` and applies the recommended policy values via Arca
+4. Reports what was configured
 
 ---
 
@@ -1382,6 +1616,9 @@ cargo component build --release --target wasm32-wasip2
 
 # Copy binary to canonical location
 cp target/wasm32-wasip2/release/my_reagent.wasm ../reagent.wasm
+
+# Optional: remove build artifacts to save disk space (~500MB+ per component)
+cargo clean
 ```
 
 ### 6. Create Manifest
@@ -1549,6 +1786,9 @@ cargo component build --release --target wasm32-wasip2
 
 # Copy to canonical location
 cp target/wasm32-wasip2/release/my_api_catalyst.wasm ../catalyst.wasm
+
+# Optional: remove build artifacts to save disk space (~500MB+ per component)
+cargo clean
 ```
 
 ### 6. Create Manifest
@@ -1565,7 +1805,20 @@ Create `components/catalysts/local/my-api/0.1.0/cyfr-manifest.json`:
     "http": true,
     "secrets": true
   },
-  "secrets": ["MY_API_KEY"],
+  "setup": {
+    "secrets": [
+      {
+        "name": "MY_API_KEY",
+        "description": "API key from https://api.example.com/settings",
+        "required": true
+      }
+    ],
+    "policy": {
+      "allowed_domains": ["api.example.com"],
+      "rate_limit": {"requests": 100, "window": "1m"},
+      "timeout": "30s"
+    }
+  },
   "schema": {
     "input": {
       "type": "object",
@@ -1580,19 +1833,13 @@ Create `components/catalysts/local/my-api/0.1.0/cyfr-manifest.json`:
 }
 ```
 
-### 7. Set Up Secrets and Policy
+### 7. Run Setup
 
-Before the catalyst can run, you must configure secrets and policy:
+Before the catalyst can run, use `cyfr setup` to configure secrets and policy from the manifest:
 
 ```bash
-# Store the API key
-cyfr secret set MY_API_KEY=your-api-key-here
-
-# Grant the catalyst access to the secret
-cyfr secret grant c:local.my-api:0.1.0 MY_API_KEY
-
-# Set allowed domains (REQUIRED for catalysts)
-cyfr policy set c:local.my-api:0.1.0 allowed_domains '["api.example.com"]'
+# Interactive setup — prompts for secrets, applies recommended policy
+cyfr setup c:local.my-api:0.1.0
 ```
 
 ### 8. Validate and Test
@@ -1718,6 +1965,9 @@ cargo component build --release --target wasm32-wasip2
 
 # Copy to canonical location
 cp target/wasm32-wasip2/release/list_models.wasm ../formula.wasm
+
+# Optional: remove build artifacts to save disk space (~500MB+ per component)
+cargo clean
 ```
 
 ### 6. Create Manifest
@@ -1768,6 +2018,57 @@ cyfr import components/formulas/local/list-models/0.1.0/formula.wasm --target fo
 
 # Test with empty input
 cyfr run draft:<id> --input '{}'
+```
+
+### Parallel Invocation Example
+
+This example shows how a Formula can invoke multiple catalysts concurrently using `call-batch` + `poll-all` + `close`:
+
+```rust
+use cyfr::formula::invoke;
+
+fn run(input: String) -> String {
+    // Launch two API calls in parallel
+    let batch_response = invoke::call_batch(&serde_json::json!({
+        "invocations": [
+            {
+                "reference": {"registry": "catalyst:local.claude:0.2.0"},
+                "input": {"prompt": "Summarize this document"},
+                "type": "catalyst"
+            },
+            {
+                "reference": {"registry": "catalyst:local.openai:0.2.0"},
+                "input": {"prompt": "Summarize this document"},
+                "type": "catalyst"
+            }
+        ]
+    }).to_string());
+
+    let batch: serde_json::Value = serde_json::from_str(&batch_response).unwrap();
+    if batch.get("error").is_some() {
+        return batch_response;
+    }
+    let handle = batch["batch"].as_str().unwrap();
+
+    // Poll until all complete
+    loop {
+        let poll_response = invoke::poll_all(&serde_json::json!({
+            "batch": handle
+        }).to_string());
+
+        let poll: serde_json::Value = serde_json::from_str(&poll_response).unwrap();
+        if poll["all_done"].as_bool().unwrap_or(false) {
+            // Cleanup and return results
+            invoke::close(&serde_json::json!({"batch": handle}).to_string());
+            return serde_json::json!({
+                "results": poll["results"]
+            }).to_string();
+        }
+
+        // WASM has no sleep — poll again immediately.
+        // The host blocks briefly on each poll call, providing natural backoff.
+    }
+}
 ```
 
 ---
@@ -2145,6 +2446,17 @@ codegen-units = 1    # Better optimization
 strip = true         # Strip symbols
 ```
 
+### Clean Up Build Artifacts
+
+Rust `target/` directories can reach 500MB–2GB per component. After copying the compiled `.wasm` binary, remove `target/` to reclaim disk space:
+
+```bash
+# From the component's src/ directory
+cargo clean
+```
+
+If you're building multiple components locally, this adds up quickly. The `.gitignore` already excludes `target/`, but the directories still consume local disk until removed.
+
 ### Handle Errors Gracefully
 
 Return structured JSON errors, not panics:
@@ -2192,7 +2504,7 @@ Think of these as complementary layers:
 | **Example Input/Output** | Copy-pasteable JSON payloads showing real usage |
 | **Required Secrets** | Which secrets to grant and how to obtain them |
 | **Usage (CLI & MCP)** | How to run the component via `cyfr run` and via MCP JSON-RPC (`POST /mcp`). Show copy-pasteable examples for the most common operations. |
-| **Configuration** | Available `config.json` keys and user-configurable overrides |
+| **Setup** | What `cyfr setup` configures: required secrets and recommended policy values |
 | **Known Limitations** | Rate limits, unsupported features, platform constraints |
 
 ### Template
@@ -2256,11 +2568,14 @@ curl -X POST http://localhost:4000/mcp \
 |--------|-------------|---------------|
 | `API_KEY` | API authentication key | Sign up at ... |
 
-## Configuration
+## Setup
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `base_url` | string | `https://...` | API base URL |
+Run `cyfr setup c:namespace.name:version` to configure secrets and policy.
+
+| Setup Item | Type | Description |
+|------------|------|-------------|
+| `API_KEY` secret | required | API authentication key |
+| `allowed_domains` policy | recommended | `["api.example.com"]` |
 
 ## Limitations
 
@@ -2277,9 +2592,8 @@ Before publishing a component to the registry, verify:
 - [ ] `cyfr-manifest.json` present with required fields (`id`, `type`, `version`, `description`)
 - [ ] Capability declarations in manifest match actual WASM imports (e.g., if your WIT imports `cyfr:http/fetch`, manifest has `wasi.http: true`)
 - [ ] Input/output schemas defined in manifest (`schema.input`, `schema.output`)
-- [ ] Required secrets listed in manifest (`secrets` array)
-- [ ] `config.json` present if component documents configuration
-- [ ] Config schema in manifest (`schema.config`) matches `config.json` structure
+- [ ] Setup section declares required secrets (`setup.secrets`) with descriptions
+- [ ] Setup section declares recommended policy (`setup.policy`) if the component needs host policy
 - [ ] Examples in manifest for common operations (recommended)
 - [ ] `README.md` with usage examples (recommended)
 - [ ] Tested via draft workflow with representative input
@@ -2292,8 +2606,8 @@ Before publishing a component to the registry, verify:
 A component moves through distinct stages from source code to production execution. Each stage is handled by a specific service:
 
 ```
-Build -> Validate -> Register -> Test (draft) -> Publish -> Pull -> Configure -> Execute
-         Locus      Compendium   Opus          Compendium  Compendium  Config     Opus
+Build -> Validate -> Register -> Test (draft) -> Publish -> Pull -> Setup -> Execute
+         Locus      Compendium   Opus          Compendium  Compendium  Setup   Opus
 ```
 
 | Stage | What Happens | Service | Command |
@@ -2304,7 +2618,7 @@ Build -> Validate -> Register -> Test (draft) -> Publish -> Pull -> Configure ->
 | **Test** | Import as ephemeral draft, run with sample input | Opus | `cyfr run draft:<id>` |
 | **Publish** | Persist to storage, sign with Sigstore, push to registry | Compendium | `component.publish` |
 | **Pull** | Download from registry to local `components/` directory | Compendium | `cyfr pull <reference>` |
-| **Configure** | Set `config.json` defaults, component config overrides (via `cyfr config set`), grant secrets | Local + Sanctum | `cyfr config set`, `cyfr secret grant` |
+| **Setup** | Apply manifest-declared secrets and policy via `cyfr setup`; grant secrets | Sanctum + Arca | `cyfr setup`, `cyfr secret grant` |
 | **Execute** | Run component in sandboxed WASM runtime with policy enforcement | Opus | `cyfr run <reference>` |
 
 **The manifest (`cyfr-manifest.json`) is present from Build onward.** It is created alongside the source code during development, validated during import, and packaged into the OCI artifact during publish.
@@ -2443,6 +2757,45 @@ fn run(input: String) -> String {
 3. **Formula as Glue**: The orchestration logic runs inside WASM but can only interact with the outside world through `cyfr:formula/invoke`. Even if the Formula is malicious, it can only call other components — each of which runs in its own sandbox with its own policy enforcement.
 
 4. **Runtime Enforces Everything**: Opus validates signatures, enforces policies, and executes each sub-component in isolation. The Formula never gets direct access to HTTP, secrets, or filesystem.
+
+### Parallel Variant
+
+Steps 2 and 3 (sentiment analysis + RSI strategy) are independent — they can run in parallel using `call-batch`:
+
+```rust
+// Steps 2+3 run concurrently instead of sequentially
+let batch_response = invoke::call_batch(&json!({
+    "invocations": [
+        {
+            "reference": {"registry": "reagent:cyfr.sentiment-analyzer:3.5"},
+            "input": {"texts": tweets},
+            "type": "reagent"
+        },
+        {
+            "reference": {"registry": "reagent:cyfr.strategy-rsi:1.0"},
+            "input": {"sentiment": tweets, "prices": tweets},
+            "type": "reagent"
+        }
+    ]
+}).to_string());
+
+let batch: serde_json::Value = serde_json::from_str(&batch_response).unwrap();
+let handle = batch["batch"].as_str().unwrap();
+
+// Wait for both to complete
+loop {
+    let poll: serde_json::Value = serde_json::from_str(
+        &invoke::poll_all(&json!({"batch": handle}).to_string())
+    ).unwrap();
+    if poll["all_done"].as_bool().unwrap_or(false) {
+        invoke::close(&json!({"batch": handle}).to_string());
+        let sentiment = &poll["results"][0]["output"];
+        let signal = &poll["results"][1]["output"];
+        // Continue with step 4...
+        break;
+    }
+}
+```
 
 ---
 

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMessages } from '../../hooks/useMessages';
-import { useAIResponse, type SitDownContext } from '../../hooks/useAIResponse';
-import { buildMemberOwnerMap, extractMentionedMemberIds, hasAllMention } from '../../lib/mention-parser';
-import { MAX_ALL_MENTIONS } from '../../config/constants';
+import { useSendMessage } from '../../hooks/useSendMessage';
 import type { Message, Member } from '../../lib/types';
 import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
@@ -13,15 +11,15 @@ import { toast } from 'sonner';
 interface ChatViewProps {
   sitDownId: string;
   members: Member[];
-  sitDownContext?: SitDownContext;
+  memberOwnerMap?: Map<string, string>;
   onToggleMembers?: () => void;
   showMembers?: boolean;
   onPoll?: () => void;
 }
 
-export function ChatView({ sitDownId, members, sitDownContext, onToggleMembers, showMembers, onPoll }: ChatViewProps) {
-  const { messages, typingIndicators, loading, sendMessage } = useMessages(sitDownId, onPoll);
-  const ai = useAIResponse(sitDownId, sitDownContext);
+export function ChatView({ sitDownId, members, memberOwnerMap, onToggleMembers, showMembers, onPoll }: ChatViewProps) {
+  const { messages, typingIndicators, loading, refetch } = useMessages(sitDownId, onPoll);
+  const send = useSendMessage(sitDownId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -29,35 +27,27 @@ export function ChatView({ sitDownId, members, sitDownContext, onToggleMembers, 
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
 
-  // Build disambiguation map for members with duplicate names
-  const memberOwnerMap = useMemo(
-    () => sitDownContext ? buildMemberOwnerMap(members, sitDownContext.dons) : undefined,
-    [members, sitDownContext]
-  );
   const hasInitialScrolled = useRef(false);
 
-  // Merge local pending (immediate on triggering client) with remote typing
-  // indicators (visible to other clients via polling). Dedup by memberId and
-  // drop indicators for members that already have a message newer than the indicator.
-  const allTyping = useMemo(() => {
-    const localMemberIds = new Set(ai.pending.map((p) => p.memberId));
+  const displayError = send.error;
+  const clearError = () => { send.clearError(); };
 
+  // Remote typing indicators from the server (inserted by sit-down-response).
+  // Drop stale indicators for members that already have a newer message.
+  const allTyping = useMemo(() => {
     const latestMsgByMember = new Map<string, string>();
     for (const msg of messages) {
       if (msg.sender_member_id) latestMsgByMember.set(msg.sender_member_id, msg.created_at);
     }
 
-    const remote = typingIndicators
-      .filter((t) => !localMemberIds.has(t.member_id))
+    return typingIndicators
       .filter((t) => {
         const latest = latestMsgByMember.get(t.member_id);
         return !latest || new Date(latest) < new Date(t.started_at);
       })
       .filter((t) => Date.now() - new Date(t.started_at).getTime() < 120_000)
       .map((t) => ({ memberId: t.member_id, memberName: t.member_name }));
-
-    return [...ai.pending, ...remote];
-  }, [ai.pending, typingIndicators, messages]);
+  }, [typingIndicators, messages]);
 
   // Snap to bottom on initial load, then only auto-scroll when near bottom
   useEffect(() => {
@@ -138,29 +128,21 @@ export function ChatView({ sitDownId, members, sitDownContext, onToggleMembers, 
   }, []);
 
   async function handleSend(content: string) {
-    try {
-      // Extract mentioned member IDs
-      const mentionedIds = extractMentionedMemberIds(content, members, memberOwnerMap);
+    // Send message via the send-message formula (server-side mention parsing,
+    // validation, message insertion, and AI response triggering).
+    const result = await send.sendMessage(content, replyTo?.id);
 
-      // @all confirmation
-      if (hasAllMention(content) && members.length > MAX_ALL_MENTIONS) {
-        toast.error(`You can only summon ${MAX_ALL_MENTIONS} at once. You've got ${members.length} at the table.`);
-        return;
+    if (!result) {
+      if (send.error) {
+        toast.error(send.error);
       }
-
-      const metadata = replyTo ? { reply_to_id: replyTo.id } : {};
-      const freshMessages = await sendMessage(content, mentionedIds, metadata);
-      setReplyTo(null);
-
-      // Trigger AI responses for mentioned members
-      if (mentionedIds.length > 0) {
-        // Find the user's message that triggered these responses
-        const triggerMsg = [...freshMessages].reverse().find((m) => m.sender_type === 'don');
-        ai.triggerMultipleResponses(mentionedIds, freshMessages, members, triggerMsg?.id);
-      }
-    } catch {
-      toast.error('The message didn\'t get through.');
+      return;
     }
+
+    setReplyTo(null);
+
+    // Refetch to show the newly inserted message
+    await refetch();
   }
 
   if (loading) {
@@ -211,11 +193,11 @@ export function ChatView({ sitDownId, members, sitDownContext, onToggleMembers, 
         ))}
 
         {/* Error */}
-        {ai.error && (
+        {displayError && (
           <div className="mx-4 mb-2 rounded-lg bg-red-900/20 border border-red-800/50 px-3 py-2 text-xs text-red-300">
-            {ai.error}
+            {displayError}
             <button
-              onClick={ai.clearError}
+              onClick={clearError}
               className="ml-2 text-red-400 hover:text-red-300 underline"
             >
               Dismiss

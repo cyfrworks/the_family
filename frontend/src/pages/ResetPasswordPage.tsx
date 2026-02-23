@@ -1,7 +1,9 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, setAccessToken } from '../lib/supabase';
+import { cyfrCall } from '../lib/cyfr';
 import { KeyRound } from 'lucide-react';
+
+const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -44,16 +46,21 @@ export function ResetPasswordPage() {
     setError('');
     setLoading(true);
     try {
-      // Temporarily use the recovery token to update the password
-      const previousToken = localStorage.getItem('sb_access_token');
-      setAccessToken(recoveryToken);
+      // Send the recovery token to the server — it never touches localStorage
+      const result = await cyfrCall('execution', {
+        action: 'run',
+        reference: { registry: SETTINGS_API_REF },
+        input: {
+          action: 'reset_password_with_token',
+          recovery_token: recoveryToken,
+          new_password: newPassword,
+        },
+        type: 'formula',
+        timeout: 30000,
+      });
 
-      try {
-        await auth.updateUser({ password: newPassword });
-      } finally {
-        // Restore previous token (or clear if there wasn't one)
-        setAccessToken(previousToken);
-      }
+      const res = result as Record<string, unknown> | null;
+      if (res?.error) throw new Error((res.error as Record<string, string>).message);
 
       setSuccess(true);
     } catch (err) {

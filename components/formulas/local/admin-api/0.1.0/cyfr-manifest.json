@@ -1,0 +1,159 @@
+{
+  "id": "formula:local.admin-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Admin operations (user listing, tier management, model catalog CRUD) with godfather-level authorization verification",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["list_users", "update_tier", "catalog_list", "catalog_add", "catalog_update", "catalog_delete", "catalog_toggle"],
+          "description": "The admin operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token — caller must have godfather tier"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "Target user ID (required for update_tier)"
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["godfather", "boss", "associate"],
+          "description": "New tier value (required for update_tier)"
+        },
+        "catalog_entry": {
+          "type": "object",
+          "description": "Catalog model data (required for catalog_add)",
+          "properties": {
+            "provider": { "type": "string" },
+            "alias": { "type": "string" },
+            "model": { "type": "string" },
+            "min_tier": { "type": "string" },
+            "sort_order": { "type": "integer" }
+          }
+        },
+        "catalog_id": {
+          "type": "string",
+          "description": "Catalog entry ID (required for catalog_update, catalog_delete, catalog_toggle)"
+        },
+        "catalog_updates": {
+          "type": "object",
+          "description": "Fields to update (required for catalog_update)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "users": {
+          "type": "array",
+          "description": "List of user profiles (list_users action)"
+        },
+        "updated": {
+          "type": "array",
+          "description": "Updated rows (update_tier, catalog_update, catalog_toggle actions)"
+        },
+        "catalog": {
+          "type": "array",
+          "description": "List of catalog models (catalog_list action)"
+        },
+        "entry": {
+          "type": "object",
+          "description": "Created catalog entry (catalog_add action)"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "Deletion confirmation (catalog_delete action)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations and auth verification"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "List all users",
+      "description": "Fetch all user profiles (godfather only)",
+      "input": {
+        "action": "list_users",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "users": [{"id": "user-1", "display_name": "Don Corleone", "tier": "godfather"}]
+      }
+    },
+    {
+      "name": "Update user tier",
+      "description": "Change a user's tier (godfather only)",
+      "input": {
+        "action": "update_tier",
+        "access_token": "eyJ...",
+        "user_id": "user-2",
+        "tier": "boss"
+      },
+      "output": {
+        "updated": [{"id": "user-2", "tier": "boss"}]
+      }
+    },
+    {
+      "name": "List catalog",
+      "description": "Fetch all model catalog entries (godfather only)",
+      "input": {
+        "action": "catalog_list",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "catalog": [{"id": "cat-1", "provider": "claude", "alias": "Sonnet", "model": "claude-sonnet-4-6"}]
+      }
+    },
+    {
+      "name": "Add catalog entry",
+      "description": "Add a new model to the catalog (godfather only)",
+      "input": {
+        "action": "catalog_add",
+        "access_token": "eyJ...",
+        "catalog_entry": {
+          "provider": "claude",
+          "alias": "Sonnet",
+          "model": "claude-sonnet-4-6",
+          "min_tier": "associate",
+          "sort_order": 0
+        }
+      },
+      "output": {
+        "entry": {"id": "cat-2", "provider": "claude", "alias": "Sonnet"}
+      }
+    },
+    {
+      "name": "Toggle catalog entry",
+      "description": "Toggle a catalog entry's active state (godfather only)",
+      "input": {
+        "action": "catalog_toggle",
+        "access_token": "eyJ...",
+        "catalog_id": "cat-1"
+      },
+      "output": {
+        "updated": [{"id": "cat-1", "is_active": false}]
+      }
+    }
+  ]
+}

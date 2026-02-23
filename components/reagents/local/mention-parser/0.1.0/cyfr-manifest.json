@@ -1,0 +1,124 @@
+{
+  "id": "reagent:local.mention-parser",
+  "type": "reagent",
+  "version": "0.1.0",
+  "description": "Parses @member mentions from message text, resolves member names, handles @all, and enforces MAX_ALL_MENTIONS limit",
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["text", "members"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The raw message text containing @mentions"
+        },
+        "members": {
+          "type": "array",
+          "description": "Array of members available in the sit-down",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "owner_id"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "owner_id": { "type": "string" }
+            }
+          }
+        },
+        "dons": {
+          "type": "array",
+          "description": "Array of Dons in the sit-down (for disambiguating duplicate member names)",
+          "items": {
+            "type": "object",
+            "required": ["user_id", "display_name"],
+            "properties": {
+              "user_id": { "type": "string" },
+              "display_name": { "type": "string" }
+            }
+          }
+        },
+        "max_all_mentions": {
+          "type": "integer",
+          "description": "Maximum number of members allowed when @all is used (default: 5)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "mentioned_member_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of member IDs that were mentioned"
+        },
+        "has_all": {
+          "type": "boolean",
+          "description": "Whether @all was used"
+        },
+        "error": {
+          "type": "object",
+          "description": "Error if validation failed (e.g., too many members for @all)",
+          "properties": {
+            "type": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Parse specific mentions",
+      "description": "Extract mentioned member IDs from text with @member references",
+      "input": {
+        "text": "Hey @The Consigliere what do you think about this? @Caporegime you too",
+        "members": [
+          { "id": "mem-1", "name": "The Consigliere", "owner_id": "user-1" },
+          { "id": "mem-2", "name": "The Caporegime", "owner_id": "user-1" }
+        ]
+      },
+      "output": {
+        "mentioned_member_ids": ["mem-1", "mem-2"],
+        "has_all": false
+      }
+    },
+    {
+      "name": "Parse @all mention",
+      "description": "Resolve @all to all member IDs, respecting the limit",
+      "input": {
+        "text": "@all what do you all think?",
+        "members": [
+          { "id": "mem-1", "name": "The Consigliere", "owner_id": "user-1" },
+          { "id": "mem-2", "name": "The Caporegime", "owner_id": "user-1" }
+        ],
+        "max_all_mentions": 5
+      },
+      "output": {
+        "mentioned_member_ids": ["mem-1", "mem-2"],
+        "has_all": true
+      }
+    },
+    {
+      "name": "@all exceeds limit",
+      "description": "Return error when @all would mention too many members",
+      "input": {
+        "text": "@all discuss",
+        "members": [
+          { "id": "mem-1", "name": "A", "owner_id": "u1" },
+          { "id": "mem-2", "name": "B", "owner_id": "u1" },
+          { "id": "mem-3", "name": "C", "owner_id": "u1" },
+          { "id": "mem-4", "name": "D", "owner_id": "u1" },
+          { "id": "mem-5", "name": "E", "owner_id": "u1" },
+          { "id": "mem-6", "name": "F", "owner_id": "u1" }
+        ],
+        "max_all_mentions": 5
+      },
+      "output": {
+        "error": {
+          "type": "too_many_mentions",
+          "message": "You can only summon 5 at once. You've got 6 at the table."
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "id": "formula:local.sit-downs-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Sit-down and commission sit-down CRUD (list, create, delete) with ownership validation",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["list", "create", "delete", "create_commission", "delete_commission"],
+          "description": "The sit-down operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "name": {
+          "type": "string",
+          "description": "Sit-down name (required for create, create_commission)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional sit-down description"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "Target sit-down ID (required for delete, delete_commission)"
+        },
+        "member_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Member IDs for commission sit-down creation"
+        },
+        "contact_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Contact IDs for commission sit-down creation"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "sit_downs": {
+          "type": "array",
+          "description": "List of sit-downs (list action)"
+        },
+        "sit_down": {
+          "type": "object",
+          "description": "Created sit-down (create/create_commission actions)"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "Deletion confirmation"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations: sit-down CRUD, ownership verification"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "List sit-downs",
+      "description": "Fetch all non-commission sit-downs",
+      "input": {
+        "action": "list",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "sit_downs": [{"id": "sd-1", "name": "Strategy Meeting", "is_commission": false}]
+      }
+    },
+    {
+      "name": "Delete sit-down",
+      "description": "Delete a sit-down with ownership check",
+      "input": {
+        "action": "delete",
+        "access_token": "eyJ...",
+        "sit_down_id": "sd-1"
+      },
+      "output": {
+        "deleted": true
+      }
+    }
+  ]
+}

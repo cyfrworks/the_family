@@ -1,0 +1,113 @@
+{
+  "id": "formula:local.settings-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "User settings operations (profile updates, password changes) with server-side validation",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["get_profile", "update_profile", "change_password", "reset_password_with_token"],
+          "description": "The settings operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "display_name": {
+          "type": "string",
+          "description": "New display name (required for update_profile)"
+        },
+        "current_password": {
+          "type": "string",
+          "description": "Current password (required for change_password)"
+        },
+        "new_password": {
+          "type": "string",
+          "description": "New password (required for change_password)"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email (required for change_password)"
+        },
+        "recovery_token": {
+          "type": "string",
+          "description": "Supabase recovery token from URL hash (required for reset_password_with_token)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "object",
+          "description": "User profile data (get_profile action)"
+        },
+        "updated": {
+          "type": "array",
+          "description": "Updated profile rows (update_profile action)"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Fresh access token (change_password action)"
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Fresh refresh token (change_password action)"
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Whether the operation succeeded (reset_password_with_token action)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:local.supabase:0.2.0",
+        "reason": "Database operations, auth verification, and password management"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Update display name",
+      "description": "Change the user's display name",
+      "input": {
+        "action": "update_profile",
+        "access_token": "eyJ...",
+        "display_name": "Don Corleone"
+      },
+      "output": {
+        "updated": [{"id": "user-1", "display_name": "Don Corleone"}]
+      }
+    },
+    {
+      "name": "Change password",
+      "description": "Change the user's password with current password verification",
+      "input": {
+        "action": "change_password",
+        "access_token": "eyJ...",
+        "email": "don@family.com",
+        "current_password": "oldpass123",
+        "new_password": "newpass456"
+      },
+      "output": {
+        "access_token": "eyJ...",
+        "refresh_token": "abc..."
+      }
+    }
+  ]
+}
