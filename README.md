@@ -129,7 +129,7 @@ Templates are personality-only — the model is chosen at creation time from wha
 Create a project at [supabase.com](https://supabase.com), then run the migration:
 
 ```
-Copy the contents of supabase/migration.sql into your
+Copy the contents of supabase/init/001-migration.sql into your
 Supabase project → SQL Editor → New Query → Run
 ```
 

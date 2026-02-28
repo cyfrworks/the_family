@@ -29,7 +29,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
     volumes:
       - supabase-db-data:/var/lib/postgresql/data
-      - ./supabase/migration.sql:/docker-entrypoint-initdb.d/migrations/20260101000000_the_family.sql:ro
+      - ./supabase/init/000-roles.sql:/docker-entrypoint-initdb.d/init-scripts/000-roles.sql:ro
+      - ./supabase/init/001-migration.sql:/docker-entrypoint-initdb.d/migrations/001-migration.sql:ro
     networks:
       - supabase
     healthcheck:
