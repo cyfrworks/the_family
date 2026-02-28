@@ -1,31 +1,30 @@
 import { useCallback, useState } from 'react';
 import { cyfrCall, CyfrError } from '../lib/cyfr';
-import { getAccessToken } from '../lib/supabase';
+import { auth, getAccessToken } from '../lib/supabase';
 
 interface SendMessageResult {
   message_id: string;
   mentioned_member_ids: string[];
 }
 
-const SEND_MESSAGE_REF = 'formula:local.send-message:0.1.0';
-const RESPONSE_BATCH_REF = 'formula:local.sit-down-response-batch:0.1.0';
+const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 
 /**
- * Send a message via the send-message formula, then trigger AI responses
- * for mentioned members via the sit-down-response-batch formula.
- *
- * Both operations are server-side: mention parsing, business-rule validation,
- * message insertion, and AI response fan-out.
+ * Send a message via the consolidated sit-down formula.
+ * Mention parsing, message insertion, and AI response fan-out
+ * are all handled server-side in a single formula invocation.
  */
 export function useSendMessage(sitDownId: string | undefined) {
   const [error, setError] = useState<string | null>(null);
-  const [responding, setResponding] = useState(false);
 
   const sendMessage = useCallback(
     async (content: string, replyToId?: string): Promise<SendMessageResult | null> => {
       if (!sitDownId) return null;
 
-      const accessToken = getAccessToken();
+      // Pre-refresh to get a token with maximum lifetime — send_message
+      // spawns AI response tasks that can run 10+ minutes.
+      const refreshed = await auth.refresh();
+      const accessToken = refreshed?.access_token || getAccessToken();
       if (!accessToken) return null;
 
       setError(null);
@@ -33,15 +32,16 @@ export function useSendMessage(sitDownId: string | undefined) {
       try {
         const result = await cyfrCall('execution', {
           action: 'run',
-          reference: { registry: SEND_MESSAGE_REF },
+          reference: SIT_DOWN_REF,
           input: {
+            action: 'send_message',
             sit_down_id: sitDownId,
             content,
             access_token: accessToken,
             ...(replyToId && { reply_to_id: replyToId }),
           },
           type: 'formula',
-          timeout: 30000,
+          timeout: 600000,
         });
 
         const res = result as Record<string, unknown> | null;
@@ -59,16 +59,6 @@ export function useSendMessage(sitDownId: string | undefined) {
           mentioned_member_ids: (res?.mentioned_member_ids as string[]) || [],
         };
 
-        // Trigger AI responses server-side (fire-and-forget)
-        if (sendResult.mentioned_member_ids.length > 0) {
-          triggerBatchResponses(
-            sitDownId,
-            sendResult.mentioned_member_ids,
-            sendResult.message_id,
-            accessToken,
-          );
-        }
-
         return sendResult;
       } catch (err) {
         setError(
@@ -82,37 +72,8 @@ export function useSendMessage(sitDownId: string | undefined) {
     [sitDownId]
   );
 
-  // Fire-and-forget: the batch formula handles typing indicators and
-  // response insertion. The frontend polls for new messages.
-  function triggerBatchResponses(
-    sdId: string,
-    memberIds: string[],
-    replyToId: string,
-    accessToken: string,
-  ) {
-    setResponding(true);
-    cyfrCall('execution', {
-      action: 'run',
-      reference: { registry: RESPONSE_BATCH_REF },
-      input: {
-        sit_down_id: sdId,
-        member_ids: memberIds,
-        reply_to_id: replyToId,
-        access_token: accessToken,
-      },
-      type: 'formula',
-      timeout: 600000,
-    })
-      .catch(() => {
-        // Errors are handled per-member inside the batch formula.
-        // Only network-level failures reach here.
-      })
-      .finally(() => setResponding(false));
-  }
-
   return {
     sendMessage,
-    responding,
     error,
     clearError: () => setError(null),
   };

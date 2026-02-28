@@ -1,0 +1,31 @@
+{$SITE_DOMAIN:localhost} {
+	# CYFR Emissary (MCP/API)
+	handle /mcp* {
+		reverse_proxy cyfr:4000
+	}
+
+	# CYFR Prism (admin dashboard)
+	handle /prism* {
+		reverse_proxy cyfr:4001
+	}
+
+	# Supabase API routes (proxied through Kong)
+	handle /auth/* {
+		reverse_proxy supabase-kong:8000
+	}
+
+	handle /rest/* {
+		reverse_proxy supabase-kong:8000
+	}
+
+	handle /realtime/* {
+		reverse_proxy supabase-kong:8000
+	}
+
+	# Frontend SPA (static files with client-side routing fallback)
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

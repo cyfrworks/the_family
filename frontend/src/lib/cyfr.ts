@@ -3,7 +3,22 @@ const CYFR_KEY = import.meta.env.VITE_CYFR_PUBLIC_KEY || '';
 
 let requestId = 0;
 
-export async function cyfrCall(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+function isRetryable(err: unknown): boolean {
+  // Network failures (fetch throws TypeError for network errors)
+  if (err instanceof TypeError) return true;
+
+  // Abort errors (timeout)
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+
+  if (err instanceof CyfrError) {
+    // Execution errors or empty responses — transient infrastructure issues
+    return err.code === -33100 || err.code === -1;
+  }
+
+  return false;
+}
+
+async function cyfrCallOnce(toolName: string, args: Record<string, unknown>): Promise<unknown> {
   const fetchTimeout = typeof args.timeout === 'number' ? args.timeout + 5000 : 35000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), fetchTimeout);
@@ -60,6 +75,25 @@ export async function cyfrCall(toolName: string, args: Record<string, unknown>):
   }
 
   return parsed;
+}
+
+export async function cyfrCall(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  const timeout = typeof args.timeout === 'number' ? args.timeout : 30000;
+
+  // Skip retry for long operations (> 60s) to avoid duplicate side effects
+  if (timeout > 60000) {
+    return cyfrCallOnce(toolName, args);
+  }
+
+  try {
+    return await cyfrCallOnce(toolName, args);
+  } catch (err) {
+    if (isRetryable(err)) {
+      await new Promise((r) => setTimeout(r, 1000));
+      return cyfrCallOnce(toolName, args);
+    }
+    throw err;
+  }
 }
 
 export class CyfrError extends Error {

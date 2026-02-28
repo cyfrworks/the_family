@@ -298,6 +298,10 @@ begin
     raise exception 'Member is not a participant of this sit-down';
   end if;
 
+  -- Clean up typing indicator for this member (avoids a separate API call)
+  delete from public.typing_indicators
+  where sit_down_id = p_sit_down_id and member_id = p_sender_member_id;
+
   insert into public.messages (sit_down_id, sender_type, sender_member_id, content, mentions, metadata)
   values (p_sit_down_id, 'member', p_sender_member_id, p_content, p_mentions, p_metadata)
   returning * into v_message;
@@ -614,4 +618,11 @@ ALTER TABLE public.messages ADD CONSTRAINT sender_check CHECK (
   (sender_type = 'don' AND sender_user_id IS NOT NULL AND sender_member_id IS NULL) OR
   (sender_type = 'member' AND sender_user_id IS NULL)
 );
+
+-- ============================================
+-- REALTIME: Enable for typing indicators & participants
+-- ============================================
+alter publication supabase_realtime add table public.typing_indicators;
+alter publication supabase_realtime add table public.sit_down_participants;
+alter publication supabase_realtime add table public.commission_contacts;
 

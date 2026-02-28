@@ -1,0 +1,130 @@
+{
+  "name": "sit-down",
+  "type": "formula",
+  "version": "0.1.0",
+  "description": "Consolidated sit-down formula: CRUD, participants, messages, and AI responses in one component",
+  "setup": {
+    "policy": {
+      "timeout": "5m",
+      "batch_timeout": "5m",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["action", "access_token"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list", "create", "delete", "create_commission", "delete_commission",
+            "get", "list_participants", "add_member", "add_don", "remove_participant",
+            "list_messages", "send_message", "_respond_member"
+          ],
+          "description": "The operation to perform"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "ID of the sit-down (required for most actions except list/create)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Sit-down name (required for create/create_commission)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional sit-down description"
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Member ID (required for add_member, _respond_member)"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User ID of the don to add (required for add_don)"
+        },
+        "participant_id": {
+          "type": "string",
+          "description": "Participant row ID to remove (required for remove_participant)"
+        },
+        "member_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Member IDs for create_commission"
+        },
+        "contact_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Contact IDs for create_commission"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text (required for send_message)"
+        },
+        "reply_to_id": {
+          "type": "string",
+          "description": "Optional message ID this is a reply to"
+        },
+        "context": {
+          "type": "object",
+          "description": "Pre-fetched context for _respond_member (internal)"
+        }
+      }
+    },
+    "output": {
+      "type": "object"
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "reason": "Database operations: CRUD, participants, messages, typing indicators"
+      },
+      {
+        "ref": "catalyst:moonmoon69.claude:0.2.0",
+        "reason": "Claude AI provider for member responses"
+      },
+      {
+        "ref": "catalyst:moonmoon69.openai:0.2.0",
+        "reason": "OpenAI provider for member responses"
+      },
+      {
+        "ref": "catalyst:moonmoon69.gemini:0.2.0",
+        "reason": "Gemini AI provider for member responses"
+      },
+      {
+        "ref": "reagent:local.mention-parser:0.1.0",
+        "reason": "Parse @mentions from message text server-side"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "List sit-downs",
+      "input": { "action": "list", "access_token": "eyJ..." },
+      "output": { "sit_downs": [] }
+    },
+    {
+      "name": "Send message with mentions",
+      "input": {
+        "action": "send_message",
+        "sit_down_id": "sd-123",
+        "content": "Hey @Consigliere what do you think?",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "message_id": "msg-456",
+        "mentioned_member_ids": ["mem-1"],
+        "results": [{ "member_id": "mem-1", "status": "ok", "message_id": "msg-789" }]
+      }
+    }
+  ]
+}

@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.2.0";
+const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
 
 fn handle_request(input: &str) -> Result<String, String> {
     let parsed: Value =
@@ -214,7 +214,7 @@ fn remove(access_token: &str, contact_user_id: &str) -> Result<String, String> {
 
 fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": { "registry": SUPABASE_REF },
+        "reference": SUPABASE_REF,
         "input": {
             "operation": operation,
             "params": params
@@ -246,7 +246,7 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
 
 fn fetch_user(access_token: &str) -> Result<Value, String> {
     let request = json!({
-        "reference": { "registry": SUPABASE_REF },
+        "reference": SUPABASE_REF,
         "input": {
             "operation": "auth.user",
             "params": {

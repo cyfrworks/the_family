@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMessages } from '../../hooks/useMessages';
 import { useSendMessage } from '../../hooks/useSendMessage';
 import type { Message, Member } from '../../lib/types';
@@ -14,25 +14,22 @@ interface ChatViewProps {
   memberOwnerMap?: Map<string, string>;
   onToggleMembers?: () => void;
   showMembers?: boolean;
-  onPoll?: () => void;
 }
 
-export function ChatView({ sitDownId, members, memberOwnerMap, onToggleMembers, showMembers, onPoll }: ChatViewProps) {
-  const { messages, typingIndicators, loading, refetch } = useMessages(sitDownId, onPoll);
+export function ChatView({ sitDownId, members, memberOwnerMap, onToggleMembers, showMembers }: ChatViewProps) {
+  const { messages, typingIndicators, loading, refetch } = useMessages(sitDownId);
   const send = useSendMessage(sitDownId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [animationQueue, setAnimationQueue] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const lastSeenIdRef = useRef<string | null>(null);
 
   const hasInitialScrolled = useRef(false);
 
   const displayError = send.error;
   const clearError = () => { send.clearError(); };
 
-  // Remote typing indicators from the server (inserted by sit-down-response).
+  // Remote typing indicators from the server (inserted by sit-down formula).
   // Drop stale indicators for members that already have a newer message.
   const allTyping = useMemo(() => {
     const latestMsgByMember = new Map<string, string>();
@@ -79,70 +76,25 @@ export function ChatView({ sitDownId, members, memberOwnerMap, onToggleMembers, 
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }
 
-  // Keep scrolling to bottom during typewriter animation
-  useEffect(() => {
-    if (animationQueue.length === 0) return;
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const interval = setInterval(() => {
-      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-      if (nearBottom) {
-        el.scrollTop = el.scrollHeight;
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, [animationQueue]);
-
-  // Queue new member messages for typewriter animation (skip initial load)
-  useEffect(() => {
-    if (loading) {
-      lastSeenIdRef.current = null;
-      setAnimationQueue([]);
-      return;
-    }
-
-    if (messages.length === 0) return;
-
-    const prevId = lastSeenIdRef.current;
-    lastSeenIdRef.current = messages[messages.length - 1].id;
-
-    // Initial load — don't animate
-    if (prevId === null) return;
-
-    // Find where the new messages start
-    const prevIndex = messages.findIndex((m) => m.id === prevId);
-    if (prevIndex === -1) return;
-
-    const newMemberMsgIds = messages
-      .slice(prevIndex + 1)
-      .filter((m) => m.sender_type === 'member')
-      .map((m) => m.id);
-
-    if (newMemberMsgIds.length > 0) {
-      setAnimationQueue((prev) => [...prev, ...newMemberMsgIds]);
-    }
-  }, [messages, loading]);
-
-  const handleAnimationComplete = useCallback(() => {
-    setAnimationQueue((prev) => prev.slice(1));
-  }, []);
-
   async function handleSend(content: string) {
-    // Send message via the send-message formula (server-side mention parsing,
-    // validation, message insertion, and AI response triggering).
-    const result = await send.sendMessage(content, replyTo?.id);
-
-    if (!result) {
-      if (send.error) {
-        toast.error(send.error);
-      }
-      return;
-    }
-
+    const replyId = replyTo?.id;
     setReplyTo(null);
 
-    // Refetch to show the newly inserted message
-    await refetch();
+    // Fire-and-forget: formula saves message to DB, realtime updates UI
+    send.sendMessage(content, replyId)
+      .then((result) => {
+        if (!result && send.error) {
+          toast.error(send.error);
+        }
+        // Fallback refetch when formula finishes (covers non-working realtime)
+        refetch();
+      })
+      .catch(() => {
+        toast.error("The message didn't get through.");
+      });
+
+    // Realtime INSERT subscription handles near-instant UI updates.
+    // Formula-completion refetch (line 90) is a sufficient fallback.
   }
 
   if (loading) {
@@ -177,9 +129,6 @@ export function ChatView({ sitDownId, members, memberOwnerMap, onToggleMembers, 
                   key={msg.id}
                   message={msg}
                   replyTo={msgReplyTo}
-                  animate={animationQueue[0] === msg.id && msg.sender_type === 'member'}
-                  queued={animationQueue.indexOf(msg.id) > 0}
-                  onAnimationComplete={handleAnimationComplete}
                   onReply={setReplyTo}
                 />
               );

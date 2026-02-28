@@ -23,7 +23,6 @@ export function SitdownPage() {
     addMember,
     addDon,
     removeParticipant,
-    refreshParticipants,
   } = useSitDown(id);
   const { user } = useAuth();
   const { members: myMembers } = useMembers();
@@ -139,7 +138,7 @@ export function SitdownPage() {
       </div>
 
       {/* Chat */}
-      <ChatView sitDownId={sitDown.id} members={participantMembers} memberOwnerMap={memberOwnerMap} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} onPoll={refreshParticipants} />
+      <ChatView sitDownId={sitDown.id} members={participantMembers} memberOwnerMap={memberOwnerMap} onToggleMembers={() => setShowMembers((s) => !s)} showMembers={showMembers} />
 
       {/* Members drawer */}
       {showMembers && (

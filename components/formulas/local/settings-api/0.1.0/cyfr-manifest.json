@@ -1,5 +1,5 @@
 {
-  "id": "formula:local.settings-api",
+  "name": "settings-api",
   "type": "formula",
   "version": "0.1.0",
   "description": "User settings operations (profile updates, password changes) with server-side validation",
@@ -76,7 +76,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:local.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
         "reason": "Database operations, auth verification, and password management"
       }
     ]

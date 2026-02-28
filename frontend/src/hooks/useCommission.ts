@@ -14,7 +14,7 @@ export function useCommission() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: COMMISSION_API_REF },
+      reference: COMMISSION_API_REF,
       input: { action: 'invite', access_token: accessToken, email },
       type: 'formula',
       timeout: 30000,
@@ -33,7 +33,7 @@ export function useCommission() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: COMMISSION_API_REF },
+      reference: COMMISSION_API_REF,
       input: { action: 'accept', access_token: accessToken, contact_id: contactId },
       type: 'formula',
       timeout: 30000,
@@ -52,7 +52,7 @@ export function useCommission() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: COMMISSION_API_REF },
+      reference: COMMISSION_API_REF,
       input: { action: 'decline', access_token: accessToken, contact_id: contactId },
       type: 'formula',
       timeout: 30000,
@@ -71,7 +71,7 @@ export function useCommission() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: COMMISSION_API_REF },
+      reference: COMMISSION_API_REF,
       input: { action: 'remove', access_token: accessToken, contact_user_id: contactUserId },
       type: 'formula',
       timeout: 30000,

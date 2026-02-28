@@ -49,7 +49,7 @@ export function ResetPasswordPage() {
       // Send the recovery token to the server — it never touches localStorage
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: SETTINGS_API_REF },
+        reference: SETTINGS_API_REF,
         input: {
           action: 'reset_password_with_token',
           recovery_token: recoveryToken,

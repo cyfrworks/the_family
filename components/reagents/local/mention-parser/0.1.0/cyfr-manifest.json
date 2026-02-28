@@ -1,5 +1,5 @@
 {
-  "id": "reagent:local.mention-parser",
+  "name": "mention-parser",
   "type": "reagent",
   "version": "0.1.0",
   "description": "Parses @member mentions from message text, resolves member names, handles @all, and enforces MAX_ALL_MENTIONS limit",

@@ -3,7 +3,7 @@ import { getAccessToken } from '../lib/supabase';
 import type { SitDown } from '../lib/types';
 import { useCommissionContext } from '../contexts/CommissionContext';
 
-const SIT_DOWNS_API_REF = 'formula:local.sit-downs-api:0.1.0';
+const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 
 export function useCommissionSitDowns() {
   const { commissionSitDowns: sitDowns, loading, refetch } = useCommissionContext();
@@ -19,7 +19,7 @@ export function useCommissionSitDowns() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: SIT_DOWNS_API_REF },
+      reference: SIT_DOWN_REF,
       input: {
         action: 'create_commission',
         access_token: accessToken,
@@ -45,7 +45,7 @@ export function useCommissionSitDowns() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: SIT_DOWNS_API_REF },
+      reference: SIT_DOWN_REF,
       input: { action: 'delete_commission', access_token: accessToken, sit_down_id: id },
       type: 'formula',
       timeout: 30000,

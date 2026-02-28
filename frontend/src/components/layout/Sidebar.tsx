@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSitDowns } from '../../hooks/useSitDowns';
 import { useCommission } from '../../hooks/useCommission';
 import { useCommissionSitDowns } from '../../hooks/useCommissionSitDowns';
+import { useRealtimeStatus } from '../../hooks/useRealtimeStatus';
 import { useEffect, useRef, useState } from 'react';
 import { CreateSitdownModal } from '../sitdown/CreateSitdownModal';
 import { CreateCommissionSitDownModal } from '../commission/CreateCommissionSitDownModal';
@@ -56,6 +57,7 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { profile, isGodfather, tier, signOut } = useAuth();
+  const realtimeConnected = useRealtimeStatus();
   const { sitDowns, deleteSitDown, refetch: refetchSitDowns } = useSitDowns();
   const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
   const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown } = useCommissionSitDowns();
@@ -339,8 +341,20 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 <span className="block truncate text-sm text-stone-300">
                   {profile?.display_name ?? 'Don'}
                 </span>
-                <span className={`inline-flex rounded px-1.5 py-0.5 text-[9px] font-semibold ${TIER_COLORS[tier]}`}>
-                  {TIER_LABELS[tier]}
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`inline-flex rounded px-1.5 py-0.5 text-[9px] font-semibold ${TIER_COLORS[tier]}`}>
+                    {TIER_LABELS[tier]}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                    realtimeConnected
+                      ? 'bg-emerald-900/50 text-emerald-400'
+                      : 'bg-red-900/50 text-red-400'
+                  }`}>
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${
+                      realtimeConnected ? 'bg-emerald-400' : 'bg-red-400'
+                    }`} />
+                    {realtimeConnected ? 'Wired in' : 'Dark'}
+                  </span>
                 </span>
               </div>
             </div>

@@ -1,5 +1,5 @@
 {
-  "id": "formula:local.admin-api",
+  "name": "admin-api",
   "type": "formula",
   "version": "0.1.0",
   "description": "Admin operations (user listing, tier management, model catalog CRUD) with godfather-level authorization verification",
@@ -84,7 +84,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:local.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
         "reason": "Database operations and auth verification"
       }
     ]

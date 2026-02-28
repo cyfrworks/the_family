@@ -1,11 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
+import { supabase } from '../lib/realtime';
 import { useAuth } from './AuthContext';
 import type { CommissionContact, SitDown } from '../lib/types';
 
-const POLL_FOCUSED_MS = 10_000;
-const POLL_BACKGROUND_MS = 30_000;
 const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
 
 interface CommissionState {
@@ -26,7 +25,6 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   const [sentInvites, setSentInvites] = useState<CommissionContact[]>([]);
   const [commissionSitDowns, setCommissionSitDowns] = useState<SitDown[]>([]);
   const [loading, setLoading] = useState(true);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
     if (!user) return;
@@ -37,7 +35,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: COMMISSION_API_REF },
+        reference: COMMISSION_API_REF,
         input: { action: 'state', access_token: accessToken },
         type: 'formula',
         timeout: 30000,
@@ -55,7 +53,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // Initial fetch
+  // Fetch once on mount (and when user changes)
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -65,29 +63,20 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
     init();
   }, [fetchAll]);
 
-  // Adaptive polling: fast when tab is focused, slow when backgrounded
+  // Realtime: refetch when commission_contacts change (RLS filters to own rows)
   useEffect(() => {
     if (!user) return;
 
-    function scheduleNext() {
-      const interval = document.visibilityState === 'visible' ? POLL_FOCUSED_MS : POLL_BACKGROUND_MS;
-      pollRef.current = setInterval(fetchAll, interval);
-    }
+    const channel = supabase
+      .channel(`commission:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'commission_contacts' },
+        () => { fetchAll(); },
+      )
+      .subscribe();
 
-    scheduleNext();
-
-    function handleVisibilityChange() {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (document.visibilityState === 'visible') fetchAll();
-      scheduleNext();
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [user, fetchAll]);
 
   return (

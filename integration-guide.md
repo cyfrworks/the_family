@@ -55,17 +55,16 @@ API keys are generated as cryptographically random tokens. CYFR only stores a SH
 
 Session tokens are for human developers using the CLI. The `cyfr login` command runs an OAuth device flow:
 
-1. CLI calls CYFR with `action: "device-init"` and your chosen provider (GitHub or Google)
+1. CLI calls CYFR with `action: "device-init"` and the GitHub provider
 2. CYFR returns a user code and verification URL
 3. You open the URL in a browser, enter the code, and authorize
 4. CLI polls until authorization completes, then stores the session ID in `~/.cyfr/config.yaml`
+5. CLI stores the registry JWT in `~/.cyfr/oci-credentials.json` for OCI push/pull access
 
 Sessions expire after 24 hours of inactivity (configurable via `CYFR_SESSION_TTL_HOURS`).
 
 ```bash
-cyfr login              # Interactive OAuth device flow
-cyfr login --github     # GitHub specifically
-cyfr login --google     # Google specifically
+cyfr login              # Interactive OAuth device flow (GitHub)
 cyfr whoami             # Check current session
 cyfr logout             # Destroy session
 ```
@@ -266,7 +265,7 @@ The body is a JSON-RPC 2.0 message:
     "name": "execution",
     "arguments": {
       "action": "run",
-      "reference": {"registry": "catalyst:local.claude:0.2.0"},
+      "reference": "catalyst:local.claude:0.2.0",
       "input": {"operation": "messages.create", "params": {"model": "claude-sonnet-4-5-20250514", "messages": [{"role": "user", "content": "Hello"}]}},
       "type": "catalyst"
     }
@@ -301,6 +300,8 @@ The body is a JSON-RPC 2.0 message:
 | `MCP-Session-Id` | `<token>` | Session-based auth (after initialization) |
 
 ### Session-Based Requests (Stateful)
+
+Most integrations use API keys and can skip this section.
 
 If using session tokens instead of API keys, you need to initialize a session first:
 
@@ -337,15 +338,35 @@ API key auth is stateless — no session initialization needed.
 
 | Code | Name | Meaning |
 |------|------|---------|
-| -33001 | `auth_required` | No authentication provided |
+| -33001 | `auth_required` | Not authenticated — tool requires login (see [Public Tools](#public-tools-no-auth-required) for exceptions) |
 | -33002 | `auth_invalid` | Invalid API key or token |
 | -33003 | `auth_expired` | Session or JWT expired |
 | -33004 | `insufficient_permissions` | Key scope doesn't cover this action, or IP not in allowlist |
 | -33100 | `execution_failed` | Component execution failed |
 | -33101 | `execution_timeout` | Component exceeded time limit |
 | -33200 | `component_not_found` | Component reference doesn't resolve |
+| -33102 | `capability_denied` | Component tried to use a capability it doesn't have |
+| -33201 | `component_invalid` | Component failed validation (invalid WASM, missing exports, etc.) |
+| -33202 | `registry_unavailable` | Registry is unreachable or returned an error |
 | -33301 | `session_required` | Stateful request without session ID |
 | -33302 | `session_expired` | Session not found or expired |
+| -33303 | `invalid_protocol` | Invalid or missing MCP protocol version header |
+| -33400 | `signature_invalid` | Component signature verification failed |
+| -33401 | `signature_expired` | Component signature has expired |
+| -33402 | `signature_missing` | Component requires a signature but none was found |
+
+### Public Tools (No Auth Required)
+
+Most tool calls require authentication (session login or API key). The following tools and actions are accessible without authentication — they support discovery and the login flow itself:
+
+| Tool | Actions | Why Public |
+|------|---------|------------|
+| `session` | all (`login`, `device-init`, `device-poll`, `ping`, `logout`) | Needed to authenticate in the first place |
+| `guide` | all (`list`, `get`, `readme`) | Read-only documentation |
+| `component` | `search`, `inspect`, `categories`, `setup_plan`, `list` | Read-only component discovery |
+| `system` | `status` | Health checks |
+
+Everything else — `component.register`, `component.publish`, `execution.*`, `secret.*`, `key.*`, `permission.*`, `policy.*`, `audit.*`, `storage.*`, `system.notify` — returns error code `-33001` (`auth_required`) if the session is not authenticated.
 
 ---
 
@@ -382,7 +403,7 @@ async function runComponent(reference, input, type = "catalyst") {
 
 // Call a component
 const result = await runComponent(
-  { registry: "catalyst:local.claude:0.2.0" },
+  "catalyst:local.claude:0.2.0",
   { operation: "messages.create", params: { model: "claude-sonnet-4-5-20250514", messages: [{ role: "user", content: "Hello" }] } }
 );
 ```
@@ -419,7 +440,7 @@ async function cyfr(toolName, args) {
 // Execute a component
 const result = await cyfr("execution", {
   action: "run",
-  reference: { registry: "reagent:cyfr.json-transform:1.0.0" },
+  reference: "reagent:cyfr.json-transform:1.0.0",
   input: { data: [1, 2, 3] },
   type: "reagent",
 });
@@ -504,7 +525,7 @@ def cyfr_call(tool_name, arguments):
 # Execute a component
 result = cyfr_call("execution", {
     "action": "run",
-    "reference": {"registry": "catalyst:local.claude:0.2.0"},
+    "reference": "catalyst:local.claude:0.2.0",
     "input": {"operation": "messages.create", "params": {"model": "claude-sonnet-4-5-20250514"}},
     "type": "catalyst",
 })
@@ -570,12 +591,12 @@ Handles all database operations via Supabase's REST API.
 # Recommended: run cyfr setup to configure secrets, grants, and policies interactively
 cyfr setup
 
-# Or configure manually:
+# Or configure manually (omit version → applies to all registered versions):
 cyfr secret set SUPABASE_URL=https://xyzcompany.supabase.co
 cyfr secret set SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIs...
-cyfr secret grant c:local.supabase:0.2.0 SUPABASE_URL
-cyfr secret grant c:local.supabase:0.2.0 SUPABASE_SERVICE_KEY
-cyfr policy set c:local.supabase:0.2.0 allowed_domains '["xyzcompany.supabase.co"]'
+cyfr secret grant c:local.supabase SUPABASE_URL
+cyfr secret grant c:local.supabase SUPABASE_SERVICE_KEY
+cyfr policy set c:local.supabase allowed_domains '["xyzcompany.supabase.co"]'
 ```
 
 **Input/output contract:**
@@ -628,51 +649,18 @@ receive input: { "action": "create", "data": { "email": "alice@example.com", "na
 ```javascript
 // Your React/Next.js app calls the Formula via MCP
 const result = await runComponent(
-  { registry: "formula:local.users-api:0.1.0" },
+  "formula:local.users-api:0.1.0",
   { action: "create", data: { email: "alice@example.com", name: "Alice" } },
   "formula"
 );
 // result → { "user": { "id": 1, "email": "alice@example.com", "name": "Alice" }, "status": "created" }
 ```
 
-### Traditional Backend vs CYFR
-
-| Concern | Traditional (Express/Next.js) | CYFR |
-|---------|-------------------------------|------|
-| API routes | `app/api/users/route.ts` | `f:local.users-api:0.1.0` (Formula) |
-| DB client | `new Pool()` or Prisma | `c:local.supabase:0.2.0` (Catalyst) |
-| Secrets | `.env` file or Vault | `cyfr setup` or `cyfr secret set` + `cyfr secret grant` (per-component) |
-| Validation | Zod/Joi in route handler | `r:local.user-validator:0.1.0` (Reagent) |
-| Auth | Middleware (NextAuth, Passport) | Sanctum (API keys, JWT, OAuth) |
-| Audit trail | Custom logging or none | Built-in (every execution logged) |
-| Rate limiting | Express middleware or API gateway | Host Policy (`rate_limit` per component) |
-| Sandboxing | None (full Node.js access) | WASM sandbox (memory-isolated per component) |
-
 ### Structuring CRUD Operations
 
-Two common approaches:
+**Option A: One Formula per resource** — simpler. Input includes `"action": "create|read|update|delete"`. Good for small apps (e.g., `f:local.users-api:0.1.0`).
 
-**Option A: One Formula per resource** (simpler, good for small apps)
-
-```
-f:local.users-api:0.1.0    → handles create, read, update, delete for users
-f:local.orders-api:0.1.0   → handles create, read, update, delete for orders
-```
-
-Input includes an `action` field: `{ "action": "create", "data": {...} }`
-
-**Option B: One Formula per operation** (finer-grained policy, better for complex apps)
-
-```
-f:local.users-create:0.1.0 → only handles user creation
-f:local.users-list:0.1.0   → only handles listing users
-f:local.users-update:0.1.0 → only handles updating users
-f:local.users-delete:0.1.0 → only handles deleting users
-```
-
-Each Formula gets its own policy, rate limits, and audit trail. Use this when different
-operations need different security postures (e.g., delete requires admin key, list allows
-public key).
+**Option B: One Formula per operation** — finer-grained policy, rate limits, and audit per operation. Use when different operations need different security postures (e.g., `f:local.users-delete:0.1.0` requires admin key, `f:local.users-list:0.1.0` allows public key).
 
 ### Where Application Data Lives
 
@@ -697,6 +685,8 @@ The recommended way to configure secrets, grants, and host policies for all your
 cyfr setup
 ```
 
+`cyfr register` scans and registers local components. Run `cyfr setup` afterwards to configure secrets, grants, and policies — it lets you choose which versions to apply to (all versions by default, or specific ones).
+
 If you need fine-grained control or want to script individual policy changes, you can use the commands below directly.
 
 Before components can run, you need to configure Host Policies. Catalysts **require** a policy with `allowed_domains` — without it, execution is rejected with a `POLICY_REQUIRED` error. Reagents don't need policy.
@@ -707,27 +697,34 @@ Before components can run, you need to configure Host Policies. Catalysts **requ
 |-------|------|---------|-------------|
 | `allowed_domains` | string[] | `[]` (deny-all) | Domains the component can reach via HTTP |
 | `allowed_methods` | string[] | `["GET","POST","PUT","DELETE","PATCH"]` | HTTP methods allowed |
-| `rate_limit` | object | `{requests: 100, window: "1m"}` | Rate limit per user per component |
+| `rate_limit` | object | `nil` (no limit) | Rate limit per user per component. Format: `{"requests": N, "window": "1m"}` |
 | `timeout` | string | `"30s"` | Max execution time (e.g., `"30s"`, `"1m"`) |
 | `max_memory_bytes` | integer | 67108864 (64 MB) | Max WASM memory |
 | `max_request_size` | integer | 1048576 (1 MB) | Max input size in bytes |
 | `max_response_size` | integer | 5242880 (5 MB) | Max output size in bytes |
 | `allowed_tools` | string[] | `[]` (deny-all) | MCP tools allowed (for Formulas using `cyfr:mcp/tools`) |
+| `allowed_private_ips` | string[] | `[]` (deny-all) | Private IPs or CIDR ranges to allow (for on-prem/air-gapped deployments). `169.254.0.0/16` always blocked. |
 
 ### Setting Policies
 
 ```bash
-# Allow a catalyst to call an external API
-cyfr policy set c:local.claude:0.2.0 allowed_domains '["api.anthropic.com"]'
+# Allow a catalyst to call an external API (all registered versions)
+cyfr policy set c:local.claude allowed_domains '["api.anthropic.com"]'
 
 # Set a custom rate limit
-cyfr policy set c:local.claude:0.2.0 rate_limit '{"requests": 50, "window": "5m"}'
+cyfr policy set c:local.claude rate_limit '{"requests": 50, "window": "5m"}'
 
 # Set a longer timeout for slow operations
-cyfr policy set c:local.claude:0.2.0 timeout '"60s"'
+cyfr policy set c:local.claude timeout '"60s"'
+
+# Allow access to private network services (on-prem deployments)
+cyfr policy set c:local.claude allowed_private_ips '["10.0.0.0/8", "192.168.1.100"]'
+
+# Version-specific policy (only this version)
+cyfr policy set c:local.claude:0.2.0 allowed_domains '["api.anthropic.com", "extra.api.com"]'
 
 # View current policy
-cyfr policy show c:local.claude:0.2.0
+cyfr policy show c:local.claude
 
 # List all policies
 cyfr policy list
@@ -737,6 +734,22 @@ cyfr policy list
 
 - Exact match: `"api.stripe.com"` matches only `api.stripe.com`
 - Wildcard: `"*.stripe.com"` matches `api.stripe.com`, `dashboard.stripe.com`, etc.
+
+### Private IP Access
+
+By default, all private/reserved IP ranges are blocked to prevent SSRF attacks. For on-prem or air-gapped deployments where components need to reach services on private IPs, use `allowed_private_ips`:
+
+```bash
+# Allow all 10.x.x.x addresses
+cyfr policy set c:local.my-catalyst allowed_private_ips '["10.0.0.0/8"]'
+
+# Allow specific IPs and ranges
+cyfr policy set c:local.my-catalyst allowed_private_ips '["192.168.1.100", "10.0.0.0/8"]'
+```
+
+- Accepts individual IPs (`"192.168.1.100"`) and CIDR ranges (`"10.0.0.0/8"`)
+- `169.254.0.0/16` (link-local / cloud metadata) is **always blocked** regardless of this setting
+- An empty list (the default) denies all private IPs, preserving current behavior
 
 ### MCP Tool Policies (for Formulas)
 
@@ -756,7 +769,7 @@ Tool matching supports wildcards: `"component.*"` matches `component.search`, `c
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `CYFR_SECRET_KEY_BASE` | Phoenix secret key base (generated by `cyfr init`) | `<64-byte random base64>` |
+| `CYFR_SECRET_KEY_BASE` | Phoenix secret key base (generated during project init) | `<64-byte random base64>` |
 
 ### Server
 
@@ -765,7 +778,7 @@ Tool matching supports wildcards: `"component.*"` matches `component.search`, `c
 | `CYFR_HOST` | `localhost` | Server bind address |
 | `CYFR_PORT` | `4000` | Server port |
 | `CYFR_PRISM_PORT` | `4001` | Prism dashboard port |
-| `CYFR_DATABASE_PATH` | `data/cyfr.db` | SQLite database path |
+| `CYFR_DATABASE_PATH` | `data/cyfr.db` | SQLite database path (Arx edition only; Core uses fixed default) |
 | `CYFR_DB_POOL_SIZE` | `5` | Database connection pool size |
 
 ### Authentication
@@ -774,8 +787,6 @@ Tool matching supports wildcards: `"component.*"` matches `component.search`, `c
 |----------|---------|-------------|
 | `CYFR_GITHUB_CLIENT_ID` | — | GitHub OAuth app client ID (for `cyfr login`) |
 | `CYFR_GITHUB_CLIENT_SECRET` | — | GitHub OAuth app client secret |
-| `CYFR_GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
-| `CYFR_GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
 | `CYFR_SESSION_TTL_HOURS` | `24` | Session timeout in hours |
 | `CYFR_AUTH_PROVIDER` | auto-detect | Force auth provider: `oidc` or `simple_oauth` |
 | `CYFR_ALLOWED_USER` | — | Comma-separated allowed emails (all auth paths) |
@@ -795,28 +806,14 @@ Tool matching supports wildcards: `"component.*"` matches `component.search`, `c
 | `CYFR_OIDC_CLIENT_ID` | OIDC client ID |
 | `CYFR_OIDC_CLIENT_SECRET` | OIDC client secret |
 
-### Edition
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CYFR_EDITION` | `sanctum` | `sanctum` (open source) or `arx` (enterprise) |
-| `CYFR_LICENSE_PATH` | — | Path to Sanctum Arx license file |
-
-### Cryptography
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CYFR_PBKDF2_ITERATIONS` | `100000` | PBKDF2 key derivation rounds for secret encryption |
-
 ---
 
 ## Quick Setup Checklist
 
-Starting from zero, here's the minimum to get an app calling CYFR:
+This assumes you've completed the Quick Start in the [README](README.md) (install, init, server running).
 
 ```bash
-# 1. Initialize and start CYFR
-cyfr init
+# 1. Start CYFR and authenticate
 cyfr up
 cyfr login
 
@@ -836,3 +833,7 @@ cyfr key create --name "my-app" --type secret
 The Prism dashboard is available at `http://localhost:4001` for visual monitoring of executions, builds, and components.
 
 From here, your app can POST to `/mcp` with the API key and execute any component you've configured.
+
+> **Development workflow**: When iterating on components, follow the loop: **build → register → run → iterate**. The `cyfr register` step is required after every rebuild because registration stores a SHA-256 digest of each WASM binary. If you rebuild a component without re-registering, `cyfr run` will reject it with: `Integrity check failed for <component>. Component may have been modified. Re-register with 'cyfr register'.`
+>
+> **Note**: `cyfr register` is only needed for local/agent components developed in `components/`. Components installed via `cyfr pull` are written to `components/` and indexed automatically — no registration step required.

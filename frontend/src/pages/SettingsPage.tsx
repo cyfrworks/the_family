@@ -26,7 +26,7 @@ export function SettingsPage() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: SETTINGS_API_REF },
+        reference: SETTINGS_API_REF,
         input: { action: 'update_profile', access_token: accessToken, display_name: displayName },
         type: 'formula',
         timeout: 30000,
@@ -62,7 +62,7 @@ export function SettingsPage() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: SETTINGS_API_REF },
+        reference: SETTINGS_API_REF,
         input: {
           action: 'change_password',
           access_token: accessToken,

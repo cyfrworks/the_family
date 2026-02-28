@@ -9,3 +9,211 @@ services:
       - ./components:/app/components
     env_file:
       - .env
+    networks:
+      - default
+      - supabase
+
+  # ════════════════════════════════════════════
+  # Self-Hosted Supabase (profile: supabase)
+  # Activate with COMPOSE_PROFILES=supabase in .env
+  # ════════════════════════════════════════════
+
+  supabase-db:
+    profiles: [supabase]
+    image: supabase/postgres:15.8.1.085
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ./supabase/migration.sql:/docker-entrypoint-initdb.d/migrations/20260101000000_the_family.sql:ro
+    networks:
+      - supabase
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  supabase-auth:
+    profiles: [supabase]
+    image: supabase/gotrue:v2.186.0
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgresql://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:5173}
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-true}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@thefamily.local}
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  supabase-rest:
+    profiles: [supabase]
+    image: postgrest/postgrest:v12.2.3
+    environment:
+      PGRST_DB_URI: postgresql://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  supabase-realtime:
+    profiles: [supabase]
+    image: supabase/realtime:v2.34.47
+    environment:
+      PORT: 4000
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: "-proto_dist inet_tcp"
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "65536"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      supabase:
+        aliases:
+          - realtime-dev.supabase-realtime
+
+  supabase-meta:
+    profiles: [supabase]
+    image: supabase/postgres-meta:v0.84.2
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  supabase-studio:
+    profiles: [supabase]
+    image: supabase/studio:20241202-71e5240
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: The Family
+      DEFAULT_PROJECT_NAME: The Family
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  supabase-kong:
+    profiles: [supabase]
+    image: kong:2.8.1
+    entrypoint: ["/usr/local/bin/kong-entrypoint.sh"]
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml.tpl:ro
+      - ./supabase/kong-entrypoint.sh:/usr/local/bin/kong-entrypoint.sh:ro
+    depends_on:
+      - supabase-auth
+      - supabase-rest
+      - supabase-realtime
+      - supabase-meta
+      - supabase-studio
+    networks:
+      - supabase
+
+  # ════════════════════════════════════════════
+  # Caddy — Production Reverse Proxy (profile: caddy)
+  # Activate with COMPOSE_PROFILES=caddy in .env
+  # ════════════════════════════════════════════
+
+  caddy:
+    profiles: [caddy]
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+      args:
+        - VITE_CYFR_URL=/mcp
+        - VITE_CYFR_PUBLIC_KEY=${VITE_CYFR_PUBLIC_KEY}
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_KEY=${VITE_SUPABASE_KEY}
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - default
+      - supabase
+    depends_on:
+      - cyfr
+
+networks:
+  supabase:
+    driver: bridge
+
+volumes:
+  supabase-db-data:
+  caddy-data:
+  caddy-config:

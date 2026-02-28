@@ -1,5 +1,5 @@
 {
-  "id": "formula:local.members-api",
+  "name": "members-api",
   "type": "formula",
   "version": "0.1.0",
   "description": "Member CRUD with server-side joins to model_catalog, input validation, and tier-based model access checks",
@@ -70,7 +70,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:local.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
         "reason": "Database operations: member CRUD, model catalog lookup, profile tier check"
       }
     ]

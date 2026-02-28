@@ -34,7 +34,7 @@ function EditRow({ entry, onSaved }: { entry: CatalogModel; onSaved: () => void 
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: ADMIN_API_REF },
+        reference: ADMIN_API_REF,
         input: {
           action: 'catalog_update',
           access_token: accessToken,
@@ -135,7 +135,7 @@ export function ModelCatalogManager() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: ADMIN_API_REF },
+      reference: ADMIN_API_REF,
       input: {
         action: 'catalog_add',
         access_token: accessToken,
@@ -159,7 +159,7 @@ export function ModelCatalogManager() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: ADMIN_API_REF },
+      reference: ADMIN_API_REF,
       input: {
         action: 'catalog_toggle',
         access_token: accessToken,
@@ -183,7 +183,7 @@ export function ModelCatalogManager() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: ADMIN_API_REF },
+        reference: ADMIN_API_REF,
         input: {
           action: 'catalog_delete',
           access_token: accessToken,

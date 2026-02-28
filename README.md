@@ -40,19 +40,36 @@ This project shows how to build a full app on CYFR with zero backend code:
 │  CYFR Server  (Docker, port 4000)                               │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Catalysts (WASM-sandboxed API bridges)                 │    │
+│  │  Catalysts (WASM-sandboxed API bridges, from registry)  │    │
 │  │                                                         │    │
-│  │  local.supabase ──► Supabase GoTrue (auth)              │    │
-│  │                 ──► Supabase PostgREST (database + RLS) │    │
-│  │  local.claude   ──► Anthropic API                       │    │
-│  │  local.openai   ──► OpenAI API                          │    │
-│  │  local.gemini   ──► Google Gemini API                   │    │
+│  │  moonmoon69.supabase ──► Supabase GoTrue (auth)         │    │
+│  │                       ──► Supabase PostgREST (db + RLS) │    │
+│  │  moonmoon69.claude    ──► Anthropic API                 │    │
+│  │  moonmoon69.openai    ──► OpenAI API                    │    │
+│  │  moonmoon69.gemini    ──► Google Gemini API             │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Formulas (WASM-sandboxed orchestration)                │    │
+│  │  Formulas (WASM-sandboxed orchestration, local + reg.)  │    │
 │  │                                                         │    │
-│  │  local.list-models ──► model discovery across providers │    │
+│  │  local.auth-api          ──► auth operations            │    │
+│  │  local.admin-api         ──► admin / catalog CRUD       │    │
+│  │  local.members-api       ──► member CRUD                │    │
+│  │  local.sit-downs-api     ──► sit-down CRUD              │    │
+│  │  local.sit-down-api      ──► participant management     │    │
+│  │  local.messages-api      ──► message retrieval          │    │
+│  │  local.send-message      ──► send + mention parsing     │    │
+│  │  local.sit-down-response ──► AI response generation     │    │
+│  │  local.sit-down-response-batch ──► parallel AI batch    │    │
+│  │  local.settings-api      ──► profile + password mgmt    │    │
+│  │  local.commission-api    ──► commission contacts         │    │
+│  │  moonmoon69.list-models  ──► model discovery            │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Reagents (WASM-sandboxed pure functions)               │    │
+│  │                                                         │    │
+│  │  local.mention-parser ──► @mention text parsing         │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -97,7 +114,7 @@ Templates are personality-only — the model is chosen at creation time from wha
   ```
 - **Node.js** 18+
 - **Docker** (runs the CYFR server)
-- A **Supabase** project ([free tier works](https://supabase.com))
+- A **Supabase** project — either [cloud](https://supabase.com) (free tier works) or self-hosted (see Option B below)
 - API keys for at least one LLM provider:
   - Anthropic (`ANTHROPIC_API_KEY`)
   - OpenAI (`OPENAI_API_KEY`)
@@ -106,6 +123,8 @@ Templates are personality-only — the model is chosen at creation time from wha
 ## Setup
 
 ### 1. Lay the foundation — Supabase
+
+#### Option A: Supabase Cloud (default)
 
 Create a project at [supabase.com](https://supabase.com), then run the migration:
 
@@ -127,6 +146,39 @@ Then configure auth redirects:
 - Go to **Authentication** → **URL Configuration**
 - Set **Site URL** to `http://localhost:5173` (or your production URL)
 
+#### Option B: Self-Hosted Supabase
+
+Run Supabase alongside CYFR in Docker — no external account needed.
+
+```bash
+# One-time setup — generates secrets, writes them to .env, enables COMPOSE_PROFILES=supabase
+./scripts/setup-supabase.sh
+
+# Start everything (CYFR + Supabase)
+cyfr up
+
+# Set CYFR secrets (exact commands printed by setup script)
+cyfr secret set SUPABASE_URL=http://supabase-kong:8000
+cyfr secret set SUPABASE_PUBLISHABLE_KEY=<anon-key>
+cyfr secret set SUPABASE_SECRET_KEY=<service-role-key>
+
+# Grant secrets to the Supabase catalyst
+cyfr secret grant c:moonmoon69.supabase SUPABASE_URL
+cyfr secret grant c:moonmoon69.supabase SUPABASE_PUBLISHABLE_KEY
+cyfr secret grant c:moonmoon69.supabase SUPABASE_SECRET_KEY
+
+# Set host policy (Docker hostnames resolve to private IPs)
+cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["supabase-kong"]'
+cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_private_ips '["172.16.0.0/12"]'
+```
+
+The setup script also updates `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` in `.env` automatically. Supabase Studio is available at `http://localhost:8000` (credentials printed by the setup script). The schema auto-applies on first boot — no manual SQL needed.
+
+After signing up your first user, promote them to Godfather via Studio's SQL Editor:
+```sql
+UPDATE public.profiles SET tier = 'godfather' WHERE id = 'YOUR_USER_UUID';
+```
+
 ### 2. Open for business — CYFR Server
 
 ```bash
@@ -142,26 +194,34 @@ cyfr up
 # Log in (opens GitHub OAuth flow)
 cyfr login
 
-# Register all components (catalysts + formulas)
+# Pull components from the CYFR registry
+cyfr pull catalyst:moonmoon69.supabase:0.2.0
+cyfr pull catalyst:moonmoon69.claude:0.2.0
+cyfr pull catalyst:moonmoon69.openai:0.2.0
+cyfr pull catalyst:moonmoon69.gemini:0.2.0
+cyfr pull catalyst:moonmoon69.web:0.2.0
+cyfr pull formula:moonmoon69.list-models:0.3.0
+
+# Register all local components (formulas + reagent)
 cyfr register
 
 # ── Set secrets (interactive — prompts for name and value) ──
 # You'll need these from your Supabase project → Settings → API:
-#   SUPABASE_URL, SUPABASE_ANON_KEY
+#   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY
 # And at least one LLM key:
 #   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY
 cyfr secret set
 
 # ── Grant secrets to components (interactive — choose component + secret) ──
-# Grant SUPABASE_URL and SUPABASE_ANON_KEY to the Supabase catalyst
+# Grant SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the Supabase catalyst
 # Grant each LLM key to its respective catalyst (claude, openai, gemini)
 cyfr secret grant
 
 # Set host policies (which domains each component can reach)
-cyfr policy set c:local.supabase:0.1.0 allowed_domains '["YOUR_PROJECT.supabase.co"]'
-cyfr policy set c:local.claude:0.1.0 allowed_domains '["api.anthropic.com"]'
-cyfr policy set c:local.openai:0.1.0 allowed_domains '["api.openai.com"]'
-cyfr policy set c:local.gemini:0.1.0 allowed_domains '["generativelanguage.googleapis.com"]'
+cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["YOUR_PROJECT.supabase.co"]'
+cyfr policy set c:moonmoon69.claude:0.2.0 allowed_domains '["api.anthropic.com"]'
+cyfr policy set c:moonmoon69.openai:0.2.0 allowed_domains '["api.openai.com"]'
+cyfr policy set c:moonmoon69.gemini:0.2.0 allowed_domains '["generativelanguage.googleapis.com"]'
 
 # Create a public API key for the frontend
 cyfr key create --name "the-family" --type public
@@ -217,14 +277,26 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 ## CYFR Components
 
-| Component | Type | Description |
-|-----------|------|-------------|
-| `catalyst:local.supabase` | Catalyst | Auth (GoTrue), database (PostgREST), and storage bridge to Supabase |
-| `catalyst:local.claude` | Catalyst | Anthropic Claude API bridge — chat completions, model listing |
-| `catalyst:local.openai` | Catalyst | OpenAI API bridge — chat completions, model listing |
-| `catalyst:local.gemini` | Catalyst | Google Gemini API bridge — content generation, model listing |
-| `catalyst:local.web` | Catalyst | General HTTP request utility |
-| `formula:local.list-models` | Formula | Aggregates available models across all registered LLM catalysts |
+| Component | Type | Source | Description |
+|-----------|------|--------|-------------|
+| `catalyst:moonmoon69.supabase:0.2.0` | Catalyst | Registry | Auth (GoTrue), database (PostgREST), storage, edge functions |
+| `catalyst:moonmoon69.claude:0.2.0` | Catalyst | Registry | Anthropic Claude API — messages, streaming, model listing |
+| `catalyst:moonmoon69.openai:0.2.0` | Catalyst | Registry | OpenAI API — responses, completions, model listing |
+| `catalyst:moonmoon69.gemini:0.2.0` | Catalyst | Registry | Google Gemini API — generation, model listing |
+| `catalyst:moonmoon69.web:0.2.0` | Catalyst | Registry | General web reader — fetch pages, extract text |
+| `formula:moonmoon69.list-models:0.3.0` | Formula | Registry | Aggregates models across all AI provider catalysts |
+| `formula:local.auth-api:0.1.0` | Formula | Local | Sign up, sign in, sign out, token refresh, password reset |
+| `formula:local.admin-api:0.1.0` | Formula | Local | User listing, tier management, model catalog CRUD |
+| `formula:local.members-api:0.1.0` | Formula | Local | Member CRUD with tier-based model access checks |
+| `formula:local.sit-downs-api:0.1.0` | Formula | Local | Sit-down and commission sit-down CRUD |
+| `formula:local.sit-down-api:0.1.0` | Formula | Local | Participant management (add/remove members and dons) |
+| `formula:local.messages-api:0.1.0` | Formula | Local | Message retrieval with server-side joins |
+| `formula:local.send-message:0.1.0` | Formula | Local | Send message with server-side @mention parsing |
+| `formula:local.sit-down-response:0.1.0` | Formula | Local | AI response generation (context, prompt, invoke) |
+| `formula:local.sit-down-response-batch:0.1.0` | Formula | Local | Parallel AI responses via spawn/await-all |
+| `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes |
+| `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
+| `reagent:local.mention-parser:0.1.0` | Reagent | Local | Parses @mentions, resolves names, handles @all |
 
 ## Project Structure
 
@@ -277,23 +349,37 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── vite.config.ts           # Vite + Tailwind + /cyfr proxy
 │   └── package.json
 ├── components/                  # CYFR WASM components
-│   ├── catalysts/local/
-│   │   ├── claude/0.1.0/        # Anthropic Claude API bridge
-│   │   ├── openai/0.1.0/        # OpenAI API bridge
-│   │   ├── gemini/0.1.0/        # Google Gemini API bridge
-│   │   ├── supabase/0.1.0/      # Supabase (PostgREST, GoTrue, Storage) bridge
-│   │   └── web/0.1.0/           # HTTP request utility
+│   ├── catalysts/               # (pulled from registry via cyfr pull)
+│   ├── reagents/local/
+│   │   └── mention-parser/0.1.0/  # @mention text parsing reagent
 │   └── formulas/local/
-│       ├── agent/0.1.0/         # Agentic loop formula (not used by frontend currently)
-│       └── list-models/0.1.0/   # Model listing aggregation
+│       ├── admin-api/0.1.0/       # Admin operations + model catalog CRUD
+│       ├── auth-api/0.1.0/        # Authentication operations
+│       ├── commission-api/0.1.0/  # Commission contact management
+│       ├── list-models/0.3.0/     # Model listing aggregation
+│       ├── members-api/0.1.0/     # Member CRUD
+│       ├── messages-api/0.1.0/    # Message retrieval
+│       ├── send-message/0.1.0/    # Send message + mention parsing
+│       ├── settings-api/0.1.0/    # Profile + password management
+│       ├── sit-down-api/0.1.0/    # Participant management
+│       ├── sit-down-response/0.1.0/       # AI response generation
+│       ├── sit-down-response-batch/0.1.0/ # Parallel AI batch responses
+│       └── sit-downs-api/0.1.0/   # Sit-down CRUD
 ├── wit/                         # WebAssembly Interface Types
 │   ├── catalyst/                # Catalyst WIT (run, http, secrets)
 │   ├── formula/                 # Formula WIT (run, invoke, mcp tools)
 │   └── reagent/                 # Reagent WIT
 ├── supabase/
 │   ├── migration.sql            # Database schema, RLS policies, triggers, RPC functions
-│   └── migration_tiers_catalog.sql  # Production upgrade: adds tiers + model catalog
-├── docker-compose.yml           # CYFR server container
+│   ├── migration_tiers_catalog.sql  # Production upgrade: adds tiers + model catalog
+│   ├── kong.yml                 # Kong API gateway config (self-hosted Supabase)
+│   └── init/
+│       └── 00-migration.sql     # Symlink → ../migration.sql (auto-applies on first boot)
+├── scripts/
+│   └── setup-supabase.sh        # One-time self-hosted Supabase setup (generates secrets)
+├── docker-compose.yml           # CYFR + Supabase (profiles) + Caddy (profile)
+├── Dockerfile.caddy             # Multi-stage: build frontend + serve with Caddy
+├── Caddyfile                    # Caddy reverse proxy config (production)
 ├── cyfr.yaml                    # CYFR project config
 ├── .env.example                 # Environment variable template
 ├── integration-guide.md         # CYFR integration guide
@@ -302,78 +388,65 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 ## Taking It to the Streets — Production
 
-### 1. Set the production CYFR URL and build
+Production is fully Dockerized — Caddy builds the frontend, provisions TLS, and reverse-proxies everything. No Node.js or manual Caddy install needed on the VPS.
 
-In your `.env`, set `VITE_CYFR_URL` to the full public URL (this gets baked in at build time):
-
-```bash
-VITE_CYFR_URL=https://yourdomain.com/mcp
-```
-
-Then build:
+### 1. Clone and configure
 
 ```bash
-cd frontend
-npm run build
+git clone <your-repo-url> && cd the_family
+
+# Create .env from template
+cp .env.example .env
+# Edit .env: set CYFR_SECRET_KEY_BASE, VITE_CYFR_PUBLIC_KEY, SITE_DOMAIN, etc.
 ```
 
-This outputs a static build to `frontend/dist/`.
+### 2. Choose your Supabase setup
 
-### 2. Install Caddy (Ubuntu/Debian)
+**Cloud Supabase** — point `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` at your cloud project:
+```bash
+# In .env:
+COMPOSE_PROFILES=caddy
+SITE_DOMAIN=yourdomain.com
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_KEY=sb_publishable_...
+```
+
+**Self-hosted Supabase** — run the setup script, then enable both profiles:
+```bash
+./scripts/setup-supabase.sh
+
+# In .env:
+COMPOSE_PROFILES=supabase,caddy
+SITE_DOMAIN=yourdomain.com
+VITE_SUPABASE_URL=https://yourdomain.com
+VITE_SUPABASE_KEY=<anon-key-from-setup-script>
+```
+
+### 3. Build and start
 
 ```bash
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
+# Build the Caddy image (builds frontend inside Docker)
+docker compose build caddy
+
+# Start all services
+cyfr up
 ```
 
-### 3. Configure the reverse proxy
-
-CYFR runs [Bandit](https://github.com/mtrudel/bandit) (a pure-Elixir HTTP server) on two ports:
+Caddy auto-provisions HTTPS via Let's Encrypt. Make sure your domain's DNS A record points to your server's IP. TLS certificates persist in a Docker volume — rebuilding the image does **not** trigger renewal.
 
 | Port | Service | Purpose |
 |------|---------|---------|
-| 4000 | Emissary | MCP/API endpoint (`/mcp`) |
-| 4001 | Prism | Admin dashboard (Phoenix LiveView) |
-
-CYFR does not handle TLS itself — Caddy sits in front and auto-provisions HTTPS via Let's Encrypt.
-
-Edit `/etc/caddy/Caddyfile`:
-
-```
-yourdomain.com {
-    handle /mcp* {
-        reverse_proxy localhost:4000
-    }
-
-    handle /prism* {
-        reverse_proxy localhost:4001
-    }
-
-    handle {
-        root * /path/to/the_family/frontend/dist
-        try_files {path} /index.html
-        file_server
-    }
-}
-```
-
-The `handle` blocks are mutually exclusive — API routes go to CYFR, everything else serves the SPA with client-side routing fallback.
-
-Then reload:
-
-```bash
-sudo systemctl reload caddy
-```
-
-Make sure your domain's DNS A record points to your server's IP. Caddy handles the rest.
+| 80 | Caddy | HTTP → HTTPS redirect |
+| 443 | Caddy | HTTPS (auto TLS), frontend, API routing |
+| 4000 | CYFR Emissary | MCP/API endpoint (internal, proxied by Caddy) |
+| 4001 | CYFR Prism | Admin dashboard (internal, proxied by Caddy) |
+| 8000 | Supabase Kong | Supabase API gateway (self-hosted only) |
 
 **Watch your back:**
 
-- **File permissions** — Caddy runs as the `caddy` user. If your build is under `/root/`, either `chmod 755 /root` or copy the dist to `/var/www/`
-- **Prism access** — keep port 4001 on an internal network if the dashboard shouldn't be public
+- **Development** — don't use the Caddy profile locally. Use `npm run dev` for Vite hot reloading
+- **Prism access** — Caddy proxies `/prism*` publicly. If the dashboard shouldn't be public, remove that route from the `Caddyfile`
+- **Supabase Studio** — in production with self-hosted Supabase, Studio is accessible through Kong on port 8000 with basic auth. Consider firewalling port 8000 and accessing it via SSH tunnel
 
 ## Tech Stack
 

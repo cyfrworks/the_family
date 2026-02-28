@@ -1,5 +1,5 @@
 {
-  "id": "formula:local.auth-api",
+  "name": "auth-api",
   "type": "formula",
   "version": "0.1.0",
   "description": "Authentication operations (sign up, sign in, sign out, token refresh, password reset) with server-side validation",
@@ -68,7 +68,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:local.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
         "reason": "Supabase Auth operations"
       }
     ]

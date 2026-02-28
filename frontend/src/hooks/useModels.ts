@@ -71,7 +71,7 @@ export function useModels(): ModelsState {
     if (!fetchPromise) {
       fetchPromise = cyfrCall('execution', {
         action: 'run',
-        reference: { registry: 'formula:local.list-models:0.1.0' },
+        reference: 'formula:moonmoon69.list-models:0.3.0',
         input: {},
         type: 'formula',
       })

@@ -20,7 +20,7 @@ export function useMembers() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: MEMBERS_API_REF },
+        reference: MEMBERS_API_REF,
         input: { action: 'list', access_token: accessToken },
         type: 'formula',
         timeout: 30000,
@@ -51,7 +51,7 @@ export function useMembers() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: MEMBERS_API_REF },
+      reference: MEMBERS_API_REF,
       input: { action: 'create', access_token: accessToken, member },
       type: 'formula',
       timeout: 30000,
@@ -71,7 +71,7 @@ export function useMembers() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: MEMBERS_API_REF },
+      reference: MEMBERS_API_REF,
       input: { action: 'update', access_token: accessToken, member_id: id, updates },
       type: 'formula',
       timeout: 30000,
@@ -89,7 +89,7 @@ export function useMembers() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: MEMBERS_API_REF },
+      reference: MEMBERS_API_REF,
       input: { action: 'delete', access_token: accessToken, member_id: id },
       type: 'formula',
       timeout: 30000,

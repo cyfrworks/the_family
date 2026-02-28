@@ -20,7 +20,7 @@ export function useModelCatalog() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: ADMIN_API_REF },
+        reference: ADMIN_API_REF,
         input: { action: 'catalog_list', access_token: accessToken },
         type: 'formula',
         timeout: 30000,

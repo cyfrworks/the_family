@@ -17,7 +17,7 @@ export function useAdminUsers() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: ADMIN_API_REF },
+        reference: ADMIN_API_REF,
         input: { action: 'list_users', access_token: accessToken },
         type: 'formula',
         timeout: 30000,
@@ -43,7 +43,7 @@ export function useAdminUsers() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: ADMIN_API_REF },
+      reference: ADMIN_API_REF,
       input: { action: 'update_tier', access_token: accessToken, user_id: userId, tier },
       type: 'formula',
       timeout: 30000,

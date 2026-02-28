@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.2.0";
+const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
 const MIN_PASSWORD_LENGTH: usize = 8;
 
 fn handle_request(input: &str) -> Result<String, String> {
@@ -261,7 +261,7 @@ fn reset_password(email: &str) -> Result<String, String> {
 
 fn auth_call(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": { "registry": SUPABASE_REF },
+        "reference": SUPABASE_REF,
         "input": {
             "operation": operation,
             "params": params

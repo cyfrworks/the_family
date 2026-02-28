@@ -48,17 +48,6 @@ h1, h2, h3, h4, h5, h6 {
 .typing-dot:nth-child(2) { animation: pulse-dot 1.4s infinite 0.2s; }
 .typing-dot:nth-child(3) { animation: pulse-dot 1.4s infinite 0.4s; }
 
-/* Typewriter cursor */
-@keyframes blink-caret {
-  from, to { border-color: transparent; }
-  50% { border-color: #d97706; }
-}
-
-.typewriter-cursor {
-  border-right: 2px solid #d97706;
-  animation: blink-caret 0.75s step-end infinite;
-}
-
 /* Shimmer animation for Run Your Family button */
 @keyframes shimmer {
   0% { background-position: -200% center; }

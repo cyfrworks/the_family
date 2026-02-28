@@ -1,5 +1,5 @@
 {
-  "id": "formula:local.commission-api",
+  "name": "commission-api",
   "type": "formula",
   "version": "0.1.0",
   "description": "Commission operations: state retrieval, invite/accept/decline/remove contacts with audit trail",
@@ -72,7 +72,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:local.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
         "reason": "Database operations: commission contact queries, RPC calls"
       }
     ]

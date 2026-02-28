@@ -3,18 +3,14 @@ import { Reply } from 'lucide-react';
 import type { Message } from '../../lib/types';
 import { PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
 import { MessageContent } from './MessageContent';
-import { TypewriterText } from './TypewriterText';
 
 interface MessageBubbleProps {
   message: Message;
   replyTo?: Message;
-  animate?: boolean;
-  queued?: boolean;
-  onAnimationComplete?: () => void;
   onReply?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, replyTo, animate, queued, onAnimationComplete, onReply }: MessageBubbleProps) {
+export function MessageBubble({ message, replyTo, onReply }: MessageBubbleProps) {
   const isDon = message.sender_type === 'don';
   const time = formatDistanceToNow(new Date(message.created_at), { addSuffix: true });
 
@@ -108,14 +104,8 @@ export function MessageBubble({ message, replyTo, animate, queued, onAnimationCo
         </div>
         {replyQuote}
         <div className="mt-0.5 text-sm text-stone-300 [&>.prose]:contents [&>.prose>*:last-child]:inline">
-          {queued ? (
-            <span className="italic text-stone-500">...</span>
-          ) : animate ? (
-            <TypewriterText content={message.content} onComplete={onAnimationComplete} />
-          ) : (
-            <MessageContent content={message.content} />
-          )}
-          {!queued && !animate && replyButton}
+          <MessageContent content={message.content} />
+          {replyButton}
         </div>
       </div>
     </div>

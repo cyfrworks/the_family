@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { CommissionProvider } from './contexts/CommissionContext';
 import { AuthGuard } from './components/auth/AuthGuard';
@@ -12,6 +12,12 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AdminPage } from './pages/AdminPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { RecoveryRedirect } from './components/auth/RecoveryRedirect';
+
+/** Key by :id so hooks fully remount (clean state) on sit-down switch */
+function SitdownPageKeyed() {
+  const { id } = useParams<{ id: string }>();
+  return <SitdownPage key={id} />;
+}
 
 export default function App() {
   return (
@@ -32,7 +38,7 @@ export default function App() {
             }
           >
             <Route index element={<DashboardPage />} />
-            <Route path="sitdown/:id" element={<SitdownPage />} />
+            <Route path="sitdown/:id" element={<SitdownPageKeyed />} />
             <Route path="members" element={<MembersPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="admin" element={<AdminPage />} />

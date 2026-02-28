@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { auth, getAccessToken } from '../lib/supabase';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { auth, getAccessToken, setAccessToken } from '../lib/supabase';
+import { clearRealtime } from '../lib/realtime';
 import { cyfrCall } from '../lib/cyfr';
 import type { Profile, UserTier } from '../lib/types';
 
@@ -27,12 +28,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const initRef = useRef(false);
 
   const tier: UserTier = profile?.tier ?? 'associate';
   const isGodfather = tier === 'godfather';
 
-  // On mount, check for existing session via stored token
+  // On mount, check for existing session via stored token.
+  // Ref guard prevents StrictMode's double-mount from racing on token refresh.
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
     async function init() {
       const token = getAccessToken();
       if (!token) {
@@ -52,6 +58,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (currentUser) {
+        // Sync realtime auth — sessionStorage hydration doesn't call setAccessToken(),
+        // so the realtime client is unauthenticated until we do this explicitly.
+        setAccessToken(getAccessToken());
         setUser({ id: currentUser.id, email: currentUser.email });
         await fetchProfile();
       }
@@ -61,6 +70,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
+  // Auto-refresh token to keep realtime alive (tokens expire ~60min).
+  // Also refreshes on tab wake (visibilitychange) to recover from sleep.
+  // Tracks consecutive failures — 3 in a row means tokens are likely stale.
+  const refreshingRef = useRef(false);
+  const failCountRef = useRef(0);
+
+  useEffect(() => {
+    if (!user) return;
+
+    async function refreshSession() {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      try {
+        const result = await auth.refresh();
+        if (result) {
+          // Success — reset failure counter
+          failCountRef.current = 0;
+        } else if (!getAccessToken()) {
+          // Server confirmed expiry (tokens were cleared) — clean sign out
+          clearRealtime();
+          setUser(null);
+          setProfile(null);
+        } else {
+          // Transient failure (tokens preserved) — track consecutive failures
+          failCountRef.current += 1;
+          if (failCountRef.current >= 3) {
+            // Tokens are likely stale after 3 consecutive failures — clean sign out
+            clearRealtime();
+            await auth.signOut();
+            setUser(null);
+            setProfile(null);
+          }
+        }
+      } catch {
+        // Unexpected error — same as transient failure
+        failCountRef.current += 1;
+        if (failCountRef.current >= 3) {
+          clearRealtime();
+          await auth.signOut();
+          setUser(null);
+          setProfile(null);
+        }
+      } finally {
+        refreshingRef.current = false;
+      }
+    }
+
+    const interval = setInterval(refreshSession, 50 * 60 * 1000);
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') refreshSession();
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user]);
+
   async function fetchProfile() {
     try {
       const accessToken = getAccessToken();
@@ -68,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: SETTINGS_API_REF },
+        reference: SETTINGS_API_REF,
         input: { action: 'get_profile', access_token: accessToken },
         type: 'formula',
         timeout: 30000,
@@ -107,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    clearRealtime();
     await auth.signOut();
     setUser(null);
     setProfile(null);

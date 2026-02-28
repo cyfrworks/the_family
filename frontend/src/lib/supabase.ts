@@ -1,4 +1,5 @@
 import { cyfrCall } from './cyfr';
+import { setRealtimeAuth } from './realtime';
 
 /**
  * Auth client that routes all operations through the auth-api formula.
@@ -20,6 +21,7 @@ export function setAccessToken(token: string | null) {
   } else {
     sessionStorage.removeItem('sb_access_token');
   }
+  setRealtimeAuth(token);
 }
 
 export function getAccessToken(): string | null {
@@ -41,7 +43,7 @@ function getRefreshToken(): string | null {
 async function authCall(action: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
   const result = await cyfrCall('execution', {
     action: 'run',
-    reference: { registry: AUTH_API_REF },
+    reference: AUTH_API_REF,
     input: { action, ...input },
     type: 'formula',
     timeout: 30000,
@@ -147,8 +149,9 @@ export const auth = {
       setRefreshToken(tokens.refresh_token);
       return tokens;
     } catch {
-      setAccessToken(null);
-      setRefreshToken(null);
+      // Transient error (network hiccup, 502, rate limit) — preserve existing
+      // tokens since they may still be valid for up to 10 more minutes.
+      // Only the explicit { expired: true } path above should clear tokens.
       return null;
     }
   },

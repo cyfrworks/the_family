@@ -4,7 +4,7 @@ import { getAccessToken } from '../lib/supabase';
 import type { SitDown } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 
-const SIT_DOWNS_API_REF = 'formula:local.sit-downs-api:0.1.0';
+const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 
 export function useSitDowns() {
   const { user } = useAuth();
@@ -20,7 +20,7 @@ export function useSitDowns() {
 
       const result = await cyfrCall('execution', {
         action: 'run',
-        reference: { registry: SIT_DOWNS_API_REF },
+        reference: SIT_DOWN_REF,
         input: { action: 'list', access_token: accessToken },
         type: 'formula',
         timeout: 30000,
@@ -46,7 +46,7 @@ export function useSitDowns() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: SIT_DOWNS_API_REF },
+      reference: SIT_DOWN_REF,
       input: { action: 'create', access_token: accessToken, name, description: description ?? null },
       type: 'formula',
       timeout: 30000,
@@ -66,7 +66,7 @@ export function useSitDowns() {
 
     const result = await cyfrCall('execution', {
       action: 'run',
-      reference: { registry: SIT_DOWNS_API_REF },
+      reference: SIT_DOWN_REF,
       input: { action: 'delete', access_token: accessToken, sit_down_id: id },
       type: 'formula',
       timeout: 30000,
