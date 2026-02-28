@@ -5,7 +5,7 @@
 	}
 
 	# CYFR Prism (admin dashboard)
-	handle /prism* {
+	handle_path /prism* {
 		reverse_proxy cyfr:4001
 	}
 

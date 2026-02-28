@@ -55,12 +55,8 @@ This project shows how to build a full app on CYFR with zero backend code:
 │  │  local.auth-api          ──► auth operations            │    │
 │  │  local.admin-api         ──► admin / catalog CRUD       │    │
 │  │  local.members-api       ──► member CRUD                │    │
-│  │  local.sit-downs-api     ──► sit-down CRUD              │    │
-│  │  local.sit-down-api      ──► participant management     │    │
-│  │  local.messages-api      ──► message retrieval          │    │
-│  │  local.send-message      ──► send + mention parsing     │    │
-│  │  local.sit-down-response ──► AI response generation     │    │
-│  │  local.sit-down-response-batch ──► parallel AI batch    │    │
+│  │  local.sit-down          ──► CRUD, participants,        │    │
+│  │                              messages, AI responses     │    │
 │  │  local.settings-api      ──► profile + password mgmt    │    │
 │  │  local.commission-api    ──► commission contacts         │    │
 │  │  moonmoon69.list-models  ──► model discovery            │    │
@@ -288,12 +284,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `formula:local.auth-api:0.1.0` | Formula | Local | Sign up, sign in, sign out, token refresh, password reset |
 | `formula:local.admin-api:0.1.0` | Formula | Local | User listing, tier management, model catalog CRUD |
 | `formula:local.members-api:0.1.0` | Formula | Local | Member CRUD with tier-based model access checks |
-| `formula:local.sit-downs-api:0.1.0` | Formula | Local | Sit-down and commission sit-down CRUD |
-| `formula:local.sit-down-api:0.1.0` | Formula | Local | Participant management (add/remove members and dons) |
-| `formula:local.messages-api:0.1.0` | Formula | Local | Message retrieval with server-side joins |
-| `formula:local.send-message:0.1.0` | Formula | Local | Send message with server-side @mention parsing |
-| `formula:local.sit-down-response:0.1.0` | Formula | Local | AI response generation (context, prompt, invoke) |
-| `formula:local.sit-down-response-batch:0.1.0` | Formula | Local | Parallel AI responses via spawn/await-all |
+| `formula:local.sit-down:0.1.0` | Formula | Local | Consolidated sit-down: CRUD, participants, messages, AI responses |
 | `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
 | `reagent:local.mention-parser:0.1.0` | Reagent | Local | Parses @mentions, resolves names, handles @all |
@@ -352,29 +343,26 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── catalysts/               # (pulled from registry via cyfr pull)
 │   ├── reagents/local/
 │   │   └── mention-parser/0.1.0/  # @mention text parsing reagent
-│   └── formulas/local/
-│       ├── admin-api/0.1.0/       # Admin operations + model catalog CRUD
-│       ├── auth-api/0.1.0/        # Authentication operations
-│       ├── commission-api/0.1.0/  # Commission contact management
-│       ├── list-models/0.3.0/     # Model listing aggregation
-│       ├── members-api/0.1.0/     # Member CRUD
-│       ├── messages-api/0.1.0/    # Message retrieval
-│       ├── send-message/0.1.0/    # Send message + mention parsing
-│       ├── settings-api/0.1.0/    # Profile + password management
-│       ├── sit-down-api/0.1.0/    # Participant management
-│       ├── sit-down-response/0.1.0/       # AI response generation
-│       ├── sit-down-response-batch/0.1.0/ # Parallel AI batch responses
-│       └── sit-downs-api/0.1.0/   # Sit-down CRUD
+│   └── formulas/
+│       ├── local/
+│       │   ├── admin-api/0.1.0/       # Admin operations + model catalog CRUD
+│       │   ├── auth-api/0.1.0/        # Authentication operations
+│       │   ├── commission-api/0.1.0/  # Commission contact management
+│       │   ├── members-api/0.1.0/     # Member CRUD
+│       │   ├── settings-api/0.1.0/    # Profile + password management
+│       │   └── sit-down/0.1.0/        # Consolidated sit-down operations
+│       └── moonmoon69/
+│           └── list-models/0.3.0/     # Model listing aggregation (registry)
 ├── wit/                         # WebAssembly Interface Types
 │   ├── catalyst/                # Catalyst WIT (run, http, secrets)
 │   ├── formula/                 # Formula WIT (run, invoke, mcp tools)
 │   └── reagent/                 # Reagent WIT
 ├── supabase/
-│   ├── migration.sql            # Database schema, RLS policies, triggers, RPC functions
-│   ├── migration_tiers_catalog.sql  # Production upgrade: adds tiers + model catalog
+│   ├── init/
+│   │   ├── 000-roles.sh         # Syncs DB role passwords on first boot
+│   │   └── 001-migration.sql    # Database schema, RLS policies, triggers, RPC functions
 │   ├── kong.yml                 # Kong API gateway config (self-hosted Supabase)
-│   └── init/
-│       └── 00-migration.sql     # Symlink → ../migration.sql (auto-applies on first boot)
+│   └── kong-entrypoint.sh       # Renders kong.yml template with env vars
 ├── scripts/
 │   └── setup-supabase.sh        # One-time self-hosted Supabase setup (generates secrets)
 ├── docker-compose.yml           # CYFR + Supabase (profiles) + Caddy (profile)
@@ -425,7 +413,7 @@ VITE_SUPABASE_KEY=<anon-key-from-setup-script>
 ### 3. Build and start
 
 ```bash
-# Build the Caddy image (builds frontend inside Docker)
+# Build the Caddy image (builds frontend inside Docker, only needed once or after frontend changes)
 docker compose build caddy
 
 # Start all services

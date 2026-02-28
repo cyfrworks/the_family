@@ -106,18 +106,23 @@ ENVEOF
 echo -e "${GREEN}Added Supabase variables to .env${NC}"
 
 # ── Enable the supabase profile ──
+# Collect the last uncommented value (if any), then remove ALL duplicates
+current=""
 if grep -q '^COMPOSE_PROFILES=' "$PROJECT_DIR/.env"; then
-  current=$(grep '^COMPOSE_PROFILES=' "$PROJECT_DIR/.env" | head -1 | cut -d= -f2-)
-  if [[ "$current" == *"supabase"* ]]; then
-    echo -e "${YELLOW}COMPOSE_PROFILES already includes 'supabase'${NC}"
-  else
-    sed -i.bak "s/^COMPOSE_PROFILES=\(.*\)/COMPOSE_PROFILES=\1,supabase/" "$PROJECT_DIR/.env"
-    rm -f "$PROJECT_DIR/.env.bak"
-    echo -e "${GREEN}Added 'supabase' to COMPOSE_PROFILES in .env${NC}"
-  fi
-else
+  current=$(grep '^COMPOSE_PROFILES=' "$PROJECT_DIR/.env" | tail -1 | cut -d= -f2-)
+  sed -i.bak '/^COMPOSE_PROFILES=/d' "$PROJECT_DIR/.env"
+  rm -f "$PROJECT_DIR/.env.bak"
+fi
+
+if [[ -z "$current" ]]; then
   echo "COMPOSE_PROFILES=supabase" >> "$PROJECT_DIR/.env"
-  echo -e "${GREEN}Added COMPOSE_PROFILES=supabase to .env${NC}"
+  echo -e "${GREEN}Set COMPOSE_PROFILES=supabase in .env${NC}"
+elif [[ "$current" == *"supabase"* ]]; then
+  echo "COMPOSE_PROFILES=$current" >> "$PROJECT_DIR/.env"
+  echo -e "${YELLOW}COMPOSE_PROFILES already includes 'supabase' — kept as: ${current}${NC}"
+else
+  echo "COMPOSE_PROFILES=${current},supabase" >> "$PROJECT_DIR/.env"
+  echo -e "${GREEN}Added 'supabase' to COMPOSE_PROFILES: ${current},supabase${NC}"
 fi
 
 # ── Set frontend Supabase vars ──
