@@ -4,11 +4,6 @@
 		reverse_proxy cyfr:4000
 	}
 
-	# CYFR Prism (admin dashboard)
-	handle_path /prism* {
-		reverse_proxy cyfr:4001
-	}
-
 	# Supabase API routes (proxied through Kong)
 	handle /auth/* {
 		reverse_proxy supabase-kong:8000

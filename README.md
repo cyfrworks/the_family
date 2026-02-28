@@ -427,14 +427,17 @@ Caddy auto-provisions HTTPS via Let's Encrypt. Make sure your domain's DNS A rec
 | 80 | Caddy | HTTP → HTTPS redirect |
 | 443 | Caddy | HTTPS (auto TLS), frontend, API routing |
 | 4000 | CYFR Emissary | MCP/API endpoint (internal, proxied by Caddy) |
-| 4001 | CYFR Prism | Admin dashboard (internal, proxied by Caddy) |
-| 8000 | Supabase Kong | Supabase API gateway (self-hosted only) |
+| 4001 | CYFR Prism | Admin dashboard (internal) |
+| 8000 | Supabase Kong | Supabase API gateway (internal, self-hosted only) |
 
 **Watch your back:**
 
 - **Development** — don't use the Caddy profile locally. Use `npm run dev` for Vite hot reloading
-- **Prism access** — Caddy proxies `/prism*` publicly. If the dashboard shouldn't be public, remove that route from the `Caddyfile`
-- **Supabase Studio** — in production with self-hosted Supabase, Studio is accessible through Kong on port 8000 with basic auth. Consider firewalling port 8000 and accessing it via SSH tunnel
+- **Prism \& Studio** — not exposed publicly. Access them via SSH tunnel:
+  ```bash
+  ssh -L 4001:localhost:4001 -L 8000:localhost:8000 user@your-server
+  ```
+  Then open `http://localhost:4001` (Prism) and `http://localhost:8000` (Studio, login: `admin` / your `DASHBOARD_PASSWORD` from `.env`)
 
 ## Tech Stack
 
