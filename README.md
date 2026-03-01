@@ -70,8 +70,6 @@ This project shows how to build a full app on CYFR with zero backend code:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Everything goes through CYFR. The frontend **never** talks to Supabase or any LLM directly — every operation routes through the sandboxed components. One endpoint to rule them all.
-
 ## Features
 
 - **Become a Don** — sign up and build your own family of AI personas
@@ -110,7 +108,7 @@ Templates are personality-only — the model is chosen at creation time from wha
   ```
 - **Node.js** 18+
 - **Docker** (runs the CYFR server)
-- A **Supabase** project — either [cloud](https://supabase.com) (free tier works) or self-hosted (see Option B below)
+- A **Supabase** project — [cloud](https://supabase.com) (free tier works)
 - API keys for at least one LLM provider:
   - Anthropic (`ANTHROPIC_API_KEY`)
   - OpenAI (`OPENAI_API_KEY`)
@@ -120,12 +118,10 @@ Templates are personality-only — the model is chosen at creation time from wha
 
 ### 1. Lay the foundation — Supabase
 
-#### Option A: Supabase Cloud (default)
-
 Create a project at [supabase.com](https://supabase.com), then run the migration:
 
 ```
-Copy the contents of supabase/init/001-migration.sql into your
+Copy the contents of migrations/001-migration.sql into your
 Supabase project → SQL Editor → New Query → Run
 ```
 
@@ -141,39 +137,6 @@ Then configure auth redirects:
 
 - Go to **Authentication** → **URL Configuration**
 - Set **Site URL** to `http://localhost:5173` (or your production URL)
-
-#### Option B: Self-Hosted Supabase
-
-Run Supabase alongside CYFR in Docker — no external account needed.
-
-```bash
-# One-time setup — generates secrets, writes them to .env, enables COMPOSE_PROFILES=supabase
-./scripts/setup-supabase.sh
-
-# Start everything (CYFR + Supabase)
-cyfr up
-
-# Set CYFR secrets (exact commands printed by setup script)
-cyfr secret set SUPABASE_URL=http://supabase-kong:8000
-cyfr secret set SUPABASE_PUBLISHABLE_KEY=<anon-key>
-cyfr secret set SUPABASE_SECRET_KEY=<service-role-key>
-
-# Grant secrets to the Supabase catalyst
-cyfr secret grant c:moonmoon69.supabase SUPABASE_URL
-cyfr secret grant c:moonmoon69.supabase SUPABASE_PUBLISHABLE_KEY
-cyfr secret grant c:moonmoon69.supabase SUPABASE_SECRET_KEY
-
-# Set host policy (Docker hostnames resolve to private IPs)
-cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["supabase-kong"]'
-cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_private_ips '["172.16.0.0/12"]'
-```
-
-The setup script also updates `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` in `.env` automatically. Supabase Studio is available at `http://localhost:8000` (credentials printed by the setup script). The schema auto-applies on first boot — no manual SQL needed.
-
-After signing up your first user, promote them to Godfather via Studio's SQL Editor:
-```sql
-UPDATE public.profiles SET tier = 'godfather' WHERE id = 'YOUR_USER_UUID';
-```
 
 ### 2. Open for business — CYFR Server
 
@@ -357,15 +320,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── catalyst/                # Catalyst WIT (run, http, secrets)
 │   ├── formula/                 # Formula WIT (run, invoke, mcp tools)
 │   └── reagent/                 # Reagent WIT
-├── supabase/
-│   ├── init/
-│   │   ├── 000-roles.sh         # Syncs DB role passwords on first boot
-│   │   └── 001-migration.sql    # Database schema, RLS policies, triggers, RPC functions
-│   ├── kong.yml                 # Kong API gateway config (self-hosted Supabase)
-│   └── kong-entrypoint.sh       # Renders kong.yml template with env vars
-├── scripts/
-│   └── setup-supabase.sh        # One-time self-hosted Supabase setup (generates secrets)
-├── docker-compose.yml           # CYFR + Supabase (profiles) + Caddy (profile)
+├── migrations/
+│   └── 001-migration.sql        # Database schema, RLS policies, triggers, RPC functions
+├── docker-compose.yml           # CYFR + Caddy (profile)
 ├── Dockerfile.caddy             # Multi-stage: build frontend + serve with Caddy
 ├── Caddyfile                    # Caddy reverse proxy config (production)
 ├── cyfr.yaml                    # CYFR project config
@@ -388,26 +345,14 @@ cp .env.example .env
 # Edit .env: set CYFR_SECRET_KEY_BASE, VITE_CYFR_PUBLIC_KEY, SITE_DOMAIN, etc.
 ```
 
-### 2. Choose your Supabase setup
+### 2. Configure environment
 
-**Cloud Supabase** — point `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` at your cloud project:
 ```bash
 # In .env:
 COMPOSE_PROFILES=caddy
 SITE_DOMAIN=yourdomain.com
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_KEY=sb_publishable_...
-```
-
-**Self-hosted Supabase** — run the setup script, then enable both profiles:
-```bash
-./scripts/setup-supabase.sh
-
-# In .env:
-COMPOSE_PROFILES=supabase,caddy
-SITE_DOMAIN=yourdomain.com
-VITE_SUPABASE_URL=https://yourdomain.com
-VITE_SUPABASE_KEY=<anon-key-from-setup-script>
 ```
 
 ### 3. Build and start
@@ -428,16 +373,15 @@ Caddy auto-provisions HTTPS via Let's Encrypt. Make sure your domain's DNS A rec
 | 443 | Caddy | HTTPS (auto TLS), frontend, API routing |
 | 4000 | CYFR Emissary | MCP/API endpoint (internal, proxied by Caddy) |
 | 4001 | CYFR Prism | Admin dashboard (internal) |
-| 8000 | Supabase Kong | Supabase API gateway (internal, self-hosted only) |
 
 **Watch your back:**
 
 - **Development** — don't use the Caddy profile locally. Use `npm run dev` for Vite hot reloading
-- **Prism \& Studio** — not exposed publicly. Access them via SSH tunnel:
+- **Prism** — not exposed publicly. Access it via SSH tunnel:
   ```bash
-  ssh -L 4001:localhost:4001 -L 8000:localhost:8000 user@your-server
+  ssh -L 4001:localhost:4001 user@your-server
   ```
-  Then open `http://localhost:4001` (Prism) and `http://localhost:8000` (Studio, login: `admin` / your `DASHBOARD_PASSWORD` from `.env`)
+  Then open `http://localhost:4001`
 
 ## Tech Stack
 

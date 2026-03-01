@@ -4,19 +4,6 @@
 		reverse_proxy cyfr:4000
 	}
 
-	# Supabase API routes (proxied through Kong)
-	handle /auth/* {
-		reverse_proxy supabase-kong:8000
-	}
-
-	handle /rest/* {
-		reverse_proxy supabase-kong:8000
-	}
-
-	handle /realtime/* {
-		reverse_proxy supabase-kong:8000
-	}
-
 	# Frontend SPA (static files with client-side routing fallback)
 	handle {
 		root * /srv
