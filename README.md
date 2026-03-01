@@ -17,15 +17,7 @@
 
 ## What This Demonstrates
 
-[CYFR](https://github.com/cyfrworks/cyfr) is a sandboxed WASM runtime that serves as a single MCP backend. Instead of writing server code, you compose **catalysts** (API bridges) and **formulas** (orchestration logic) that run in isolated WASM sandboxes.
-
-This project shows how to build a full app on CYFR with zero backend code:
-
-- **Auth & database** via the Supabase catalyst — signup, signin, CRUD, RPC, RLS enforcement
-- **Multi-provider AI** via LLM catalysts — Claude, OpenAI, and Gemini through a unified interface
-- **Multi-provider AI routing** — client-side provider mapping calls each LLM catalyst directly through CYFR
-- **Frontend-only architecture** — the React app talks to a single `/mcp` endpoint; no Express, no Next.js API routes, no custom server
-- **Secret management & host policies** — API keys are granted per-component, outbound domains are allowlisted
+[CYFR](https://github.com/cyfrworks/cyfr) is a sandboxed WASM runtime that serves as a single MCP backend. Instead of writing server code, you compose **catalysts** (API bridges), **reagents** (compute modules), and **formulas** (orchestration logic) that run in isolated sandboxes with full policy control. The Family is a reference project that builds a full multi-user, multi-AI chat application on CYFR with zero backend code — no Express, no API routes, no Lambda.
 
 ## Architecture
 
@@ -72,19 +64,14 @@ This project shows how to build a full app on CYFR with zero backend code:
 
 ## Features
 
-- **Become a Don** — sign up and build your own family of AI personas
-- **Recruit your crew** — create Members with custom system prompts and pick a model from the admin-curated catalog
-- **The Godfather runs the show** — admin-managed model catalog with aliases ("Sonnet", "Pro", "Flash") that hide raw model IDs from users. The Godfather can hot-swap the underlying model without anyone noticing
-- **User tiers** — Godfather, Boss, and Associate. Different tiers see different models in the catalog
-- **5 made members** — built-in personality templates ready to earn — just pick a model from the catalog and go
-- **Call a sit-down** — start conversation threads and bring your Members to the table
-- **@mention to speak** — `@MemberName` calls on a specific Member; `@all` lets everyone at the table have their say
-- **They're thinking it over** — typing indicators show when a Member is composing a response
-- **Typewriter delivery** — AI responses arrive character by character, like a message being read aloud
-- **The Commission** — invite other Dons by email, form alliances, run inter-family sit-downs
-- **Multi-provider muscle** — Claude, OpenAI, and Gemini working the same sit-down
-- **Clean talk** — markdown rendering with code blocks, GFM tables, and syntax highlighting
-- **Works everywhere** — dark-themed, mobile-responsive UI with Playfair Display + Inter typography
+- **Made members, not chatbots** — AI Members are first-class participants. Same table, same message schema as humans. They don't assist — they sit down with you.
+- **@mention to summon** — `@MemberName` calls on a specific Member; `@all` lets everyone at the table have their say. The server decides who talks.
+- **The whole table talks** — call on multiple Members and the server spawns them asynchronously. Each responds independently with their own personality, model, and provider.
+- **The Commission** — invite other Dons by email, form alliances, run inter-family sit-downs where multiple Dons bring their own crews to the same table.
+- **The Godfather runs the catalog** — admin-curated model catalog with aliases that hide raw model IDs. Hot-swap the underlying model and nobody notices. Tier-gated access (Godfather / Boss / Associate).
+- **Multi-provider muscle** — Claude, OpenAI, and Gemini Members working the same sit-down, each routed to their own provider.
+- **No backend code** — CYFR is the entire backend. Every operation is a JSON-RPC call to CYFR components. No Express, no API routes, no Lambda.
+- **5 made members ready to earn** — The Outfit: Consigliere, Caporegime, Underboss, Soldato, Accountant. Pick a template, choose a model, they're made.
 
 ## The Outfit — Member Templates
 
@@ -100,7 +87,7 @@ Five personality templates, ready to work. Pick a template, choose a model from 
 
 Templates are personality-only — the model is chosen at creation time from whatever the Godfather has published in the catalog.
 
-## What You'll Need
+## Prerequisites
 
 - **CYFR CLI** — install with:
   ```bash
@@ -141,29 +128,50 @@ Then configure auth redirects:
 ### 2. Open for business — CYFR Server
 
 ```bash
-# Create .env from the template
+# Clone and configure
+git clone <repo-url> && cd the_family
 cp .env.example .env
+# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_KEY from your Supabase project
 
-# Initialize CYFR (generates CYFR_SECRET_KEY_BASE and writes it to .env)
-cyfr init
+# Initialize CYFR
+cyfr init                    # generates CYFR_SECRET_KEY_BASE → writes to .env
+cyfr upgrade                 # pull latest CYFR CLI + Docker image
+cyfr update                  # update project scaffolds (WIT, docs)
+cyfr up                      # start CYFR server (port 4000/4001)
 
-# Start the CYFR server
-cyfr up
+# Authenticate
+cyfr login                   # GitHub OAuth device flow — opens browser
 
-# Log in (opens GitHub OAuth flow)
-cyfr login
+# Create a frontend API key
+cyfr key create --name "the-family" --type public
+# Copy the printed cyfr_pk_... key to .env as VITE_CYFR_PUBLIC_KEY
+# (Vite reads this at dev/build time — no CYFR restart needed)
 
-# Pull components from the CYFR registry
+# Pull registry components
 cyfr pull catalyst:moonmoon69.supabase:0.2.0
 cyfr pull catalyst:moonmoon69.claude:0.2.0
 cyfr pull catalyst:moonmoon69.openai:0.2.0
 cyfr pull catalyst:moonmoon69.gemini:0.2.0
 cyfr pull catalyst:moonmoon69.web:0.2.0
 cyfr pull formula:moonmoon69.list-models:0.3.0
+# Or pull via Prism: open http://localhost:4001/Components, search by name, and pull from the UI
 
-# Register all local components (formulas + reagent)
+# Register local components (formulas + reagent)
 cyfr register
+```
 
+#### Configure secrets, grants, and host policies
+
+Three options:
+
+- **Option A — `cyfr setup`** (recommended): interactive wizard that walks through secrets, grants, and policies per component. Run `cyfr setup` and follow the prompts.
+- **Option B — Prism dashboard**: SSH tunnel to the admin UI (`ssh -L 4001:localhost:4001 user@server`), open `http://localhost:4001`, configure visually.
+- **Option C — Manual CLI**: individual `cyfr secret set`, `cyfr secret grant`, `cyfr policy set` commands (see reference below).
+
+<details>
+<summary>Option C — Manual CLI commands</summary>
+
+```bash
 # ── Set secrets (interactive — prompts for name and value) ──
 # You'll need these from your Supabase project → Settings → API:
 #   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY
@@ -181,22 +189,36 @@ cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["YOUR_PROJECT.supa
 cyfr policy set c:moonmoon69.claude:0.2.0 allowed_domains '["api.anthropic.com"]'
 cyfr policy set c:moonmoon69.openai:0.2.0 allowed_domains '["api.openai.com"]'
 cyfr policy set c:moonmoon69.gemini:0.2.0 allowed_domains '["generativelanguage.googleapis.com"]'
-
-# Create a public API key for the frontend
-cyfr key create --name "the-family" --type public
-# This prints a cyfr_pk_... key — copy it and set it in .env:
-#   VITE_CYFR_PUBLIC_KEY=cyfr_pk_...
 ```
 
-### 3. Open the doors — Frontend
+</details>
+
+You'll need these secrets:
+
+| Secret | Grant to | Description |
+|--------|----------|-------------|
+| `SUPABASE_URL` | `moonmoon69.supabase` | Your Supabase project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | `moonmoon69.supabase` | Supabase anon/publishable key |
+| `ANTHROPIC_API_KEY` | `moonmoon69.claude` | Anthropic API key |
+| `OPENAI_API_KEY` | `moonmoon69.openai` | OpenAI API key (optional) |
+| `GEMINI_API_KEY` | `moonmoon69.gemini` | Google Gemini API key (optional) |
+
+And these host policies:
+
+| Component | Allowed domains |
+|-----------|----------------|
+| `moonmoon69.supabase` | `YOUR_PROJECT.supabase.co` |
+| `moonmoon69.claude` | `api.anthropic.com` |
+| `moonmoon69.openai` | `api.openai.com` |
+| `moonmoon69.gemini` | `generativelanguage.googleapis.com` |
+
+### 3. Open the doors — Development
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev    # Vite dev server on port 5173, proxies /cyfr → CYFR
 ```
-
-The Vite dev server proxies `/cyfr` requests to `localhost:4000/mcp`, so no CORS configuration is needed during development.
 
 ## Running the Family
 
@@ -333,46 +355,22 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 ## Taking It to the Streets — Production
 
-Production is fully Dockerized — Caddy builds the frontend, provisions TLS, and reverse-proxies everything. No Node.js or manual Caddy install needed on the VPS.
+After completing the dev setup above, production only requires a few extra steps:
 
-### 1. Clone and configure
-
-```bash
-git clone <your-repo-url> && cd the_family
-
-# Create .env from template
-cp .env.example .env
-# Edit .env: set CYFR_SECRET_KEY_BASE, VITE_CYFR_PUBLIC_KEY, SITE_DOMAIN, etc.
-```
-
-### 2. Configure environment
-
-```bash
-# In .env:
-COMPOSE_PROFILES=caddy
-SITE_DOMAIN=yourdomain.com
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_KEY=sb_publishable_...
-```
-
-### 3. Build and start
-
-```bash
-# Build the Caddy image (builds frontend inside Docker, only needed once or after frontend changes)
-docker compose build caddy
-
-# Start all services
-cyfr up
-```
-
-Caddy auto-provisions HTTPS via Let's Encrypt. Make sure your domain's DNS A record points to your server's IP. TLS certificates persist in a Docker volume — rebuilding the image does **not** trigger renewal.
+1. Set in `.env`:
+   - `COMPOSE_PROFILES=caddy`
+   - `SITE_DOMAIN=yourdomain.com`
+2. Point your DNS A record to your server's IP
+3. `docker compose build caddy` — multi-stage build: compiles frontend, bundles into Caddy image
+4. `cyfr up` — now starts both CYFR + Caddy (Caddy auto-provisions HTTPS via Let's Encrypt)
+5. No `npm run dev` needed — Caddy serves the frontend
 
 | Port | Service | Purpose |
 |------|---------|---------|
 | 80 | Caddy | HTTP → HTTPS redirect |
-| 443 | Caddy | HTTPS (auto TLS), frontend, API routing |
-| 4000 | CYFR Emissary | MCP/API endpoint (internal, proxied by Caddy) |
-| 4001 | CYFR Prism | Admin dashboard (internal) |
+| 443 | Caddy | HTTPS (auto TLS), frontend + API proxy |
+| 4000 | CYFR Emissary | MCP endpoint (internal, proxied by Caddy) |
+| 4001 | CYFR Prism | Admin dashboard (not public — SSH tunnel) |
 
 **Watch your back:**
 
