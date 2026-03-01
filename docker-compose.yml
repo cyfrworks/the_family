@@ -9,6 +9,8 @@ services:
       - ./components:/app/components
     env_file:
       - .env
+    security_opt:
+      - seccomp:unconfined
 
   # ════════════════════════════════════════════
   # Caddy — Production Reverse Proxy (profile: caddy)
