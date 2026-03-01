@@ -165,7 +165,7 @@ cyfr register
 Three options:
 
 - **Option A — `cyfr setup`** (recommended): interactive wizard that walks through secrets, grants, and policies per component. Run `cyfr setup` and follow the prompts.
-- **Option B — Prism dashboard**: SSH tunnel to the admin UI (`ssh -L 4001:localhost:4001 user@server`), open `http://localhost:4001`, configure visually.
+- **Option B — Prism dashboard**: SSH tunnel to the admin UI (`ssh -L 4001:localhost:4001 user@server`), open `http://localhost:4001`, configure visually. Prism also serves as a live real-time dashboard for monitoring execution.
 - **Option C — Manual CLI**: individual `cyfr secret set`, `cyfr secret grant`, `cyfr policy set` commands (see reference below).
 
 <details>
