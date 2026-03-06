@@ -2,14 +2,17 @@
   "name": "sit-down",
   "type": "formula",
   "version": "0.1.0",
+  "publisher": "local",
   "description": "Consolidated sit-down formula: CRUD, participants, messages, and AI responses in one component",
   "setup": {
     "policy": {
-      "timeout": "5m",
+      "timeout": "3m",
       "batch_timeout": "5m",
       "max_memory_bytes": 67108864,
       "max_request_size": 1048576,
-      "max_response_size": 5242880
+      "max_response_size": 5242880,
+      "allowed_tools": ["execution.run"],
+      "max_concurrent_tasks": 5
     }
   },
   "schema": {
@@ -20,9 +23,9 @@
         "action": {
           "type": "string",
           "enum": [
-            "list", "create", "delete", "create_commission", "delete_commission",
+            "list", "create", "delete", "create_commission", "delete_commission", "leave_commission", "toggle_admin",
             "get", "list_participants", "add_member", "add_don", "remove_participant",
-            "list_messages", "send_message", "_respond_member"
+            "list_messages", "send_message", "mark_read", "_respond_member"
           ],
           "description": "The operation to perform"
         },
@@ -89,16 +92,24 @@
         "reason": "Database operations: CRUD, participants, messages, typing indicators"
       },
       {
-        "ref": "catalyst:moonmoon69.claude:0.2.0",
+        "ref": "catalyst:moonmoon69.claude:1.0.0",
         "reason": "Claude AI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.openai:0.2.0",
+        "ref": "catalyst:moonmoon69.openai:1.0.0",
         "reason": "OpenAI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.gemini:0.2.0",
+        "ref": "catalyst:moonmoon69.gemini:1.0.0",
         "reason": "Gemini AI provider for member responses"
+      },
+      {
+        "ref": "catalyst:moonmoon69.openrouter:1.0.0",
+        "reason": "OpenRouter AI provider for member responses"
+      },
+      {
+        "ref": "catalyst:moonmoon69.grok:1.0.0",
+        "reason": "Grok AI provider for member responses"
       },
       {
         "ref": "reagent:local.mention-parser:0.1.0",

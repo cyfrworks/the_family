@@ -1,5 +1,6 @@
 services:
   cyfr:
+    container_name: cyfr
     image: ghcr.io/cyfrworks/cyfr:latest
     ports:
       - "4000:4000"
@@ -21,10 +22,10 @@ services:
       context: .
       dockerfile: Dockerfile.caddy
       args:
-        - VITE_CYFR_URL=/mcp
-        - VITE_CYFR_PUBLIC_KEY=${VITE_CYFR_PUBLIC_KEY}
-        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-        - VITE_SUPABASE_KEY=${VITE_SUPABASE_KEY}
+        - EXPO_PUBLIC_CYFR_URL=/mcp
+        - EXPO_PUBLIC_CYFR_PUBLIC_KEY=${EXPO_PUBLIC_CYFR_PUBLIC_KEY}
+        - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
+        - EXPO_PUBLIC_SUPABASE_KEY=${EXPO_PUBLIC_SUPABASE_KEY}
     ports:
       - "80:80"
       - "443:443"

@@ -355,6 +355,8 @@ API key auth is stateless — no session initialization needed.
 | -33401 | `signature_expired` | Component signature has expired |
 | -33402 | `signature_missing` | Component requires a signature but none was found |
 
+> **MCP Tool Reference**: For a complete mapping of CLI commands to MCP tool/action pairs (useful when building HTTP integrations), see [CLI → MCP Tool Reference](component-guide.md#cli--mcp-tool-reference) in the Component Guide.
+
 ### Public Tools (No Auth Required)
 
 Most tool calls require authentication (session login or API key). The following tools and actions are accessible without authentication — they support discovery and the login flow itself:
@@ -366,7 +368,7 @@ Most tool calls require authentication (session login or API key). The following
 | `component` | `search`, `inspect`, `categories`, `setup_plan`, `list` | Read-only component discovery |
 | `system` | `status` | Health checks |
 
-Everything else — `component.register`, `component.publish`, `execution.*`, `secret.*`, `key.*`, `permission.*`, `policy.*`, `audit.*`, `storage.*`, `system.notify` — returns error code `-33001` (`auth_required`) if the session is not authenticated.
+Everything else — `component.register`, `component.publish`, `execution.*`, `secret.*`, `key.*`, `permission.*`, `policy.*`, `audit.*`, `retention.*`, `system.notify` — returns error code `-33001` (`auth_required`) if the session is not authenticated.
 
 ---
 
@@ -457,6 +459,8 @@ const components = await cyfr("component", {
 
 Admin keys are for automation. Always use an IP allowlist.
 
+**CLI-based (recommended):**
+
 ```yaml
 # GitHub Actions example
 jobs:
@@ -465,13 +469,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build component
+      - name: Build and test component
         run: |
-          cd components/reagents/local/my-tool/0.1.0/src
-          cargo component build --release --target wasm32-wasip2
-          cp target/wasm32-wasip2/release/my_tool.wasm ../reagent.wasm
+          cyfr build compile reagent:local.my-tool:0.1.0
+          cyfr run reagent:local.my-tool:0.1.0 --input '{"test": true}'
+```
 
-      - name: Register components
+**Raw HTTP alternative:**
+
+```yaml
+# GitHub Actions example
+jobs:
+  deploy-component:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile and register component
         env:
           CYFR_URL: ${{ secrets.CYFR_URL }}
           CYFR_ADMIN_KEY: ${{ secrets.CYFR_ADMIN_KEY }}  # cyfr_ak_...
@@ -485,13 +499,16 @@ jobs:
               "id": 1,
               "method": "tools/call",
               "params": {
-                "name": "component",
+                "name": "build",
                 "arguments": {
-                  "action": "register"
+                  "action": "compile",
+                  "reference": "reagent:local.my-tool:0.1.0"
                 }
               }
             }'
 ```
+
+> **CI/CD tips**: Use `cyfr build toolchains` to verify the runner environment has the required compilation toolchain. Use `cyfr build validate` to validate a pre-compiled WASM binary without compiling from source.
 
 ### Python Backend
 
@@ -577,6 +594,71 @@ components/
     └── price-calculator/0.1.0/
 ```
 
+> Use `cyfr new <type> <name>` to scaffold each component. See the [Component Guide](component-guide.md#scaffold-with-cyfr-new) for details.
+
+### Execution Event Streaming
+
+For long-running formula executions (e.g., agentic loops), CYFR supports real-time event streaming so frontends can show progressive updates instead of waiting for the full result.
+
+**Starting a streaming execution:**
+
+Use `execution.run_stream` instead of `execution.run`. It returns immediately with an `execution_id` and `stream_url`:
+
+```json
+{
+  "action": "run_stream",
+  "reference": "formula:local.agent:0.4.0",
+  "input": {"task": "Build a REST API", "model": "claude-sonnet-4-5-20250514"}
+}
+// Response:
+{"execution_id": "exec_abc123", "stream_url": "/api/executions/exec_abc123/events"}
+```
+
+**Consuming events via SSE:**
+
+Connect to the SSE endpoint to receive events as the formula executes:
+
+```bash
+curl -N http://localhost:4000/api/executions/exec_abc123/events
+```
+
+Events use standard SSE format with `event:` set to the event type:
+
+```
+id: 1
+event: emit
+data: {"kind":"turn_start","turn":1}
+
+id: 2
+event: emit
+data: {"kind":"text_delta","content":"Here's my approach...","turn":1}
+
+id: 999999999
+event: complete
+data: {"status":"completed","duration_ms":15234}
+```
+
+The endpoint supports `Last-Event-ID` for reconnection and sends keep-alive comments every 15 seconds. The connection closes automatically on `complete` or `error` events.
+
+**Setup required events:**
+
+When a formula invokes a sub-component that fails due to missing setup (policy, secrets), the system automatically emits a `setup_required` event with machine-readable fix instructions:
+
+```
+id: 5
+event: emit
+data: {"kind":"setup_required","component_ref":"catalyst:local.stripe:0.1.0","issues":[{"type":"missing_policy","field":"allowed_domains","recommended":["api.stripe.com"],"fix":{"tool":"policy","action":"update_field","args":{...}}}],"setup_command":"cyfr setup catalyst:local.stripe:0.1.0","message":"Catalyst 'catalyst:local.stripe:0.1.0' has no capabilities configured."}
+```
+
+Each issue's `fix` object contains the MCP tool, action, and args needed to resolve it. Frontends can use these to render one-click fix buttons. The `setup_command` field provides a CLI alternative. The formula still fails — the event is informational so consumers can act on it.
+
+**Consuming events via PubSub (Elixir):**
+
+```elixir
+Opus.ExecutionEventBuffer.subscribe(execution_id)
+# Process receives {:execution_event, %{type: "emit", data: %{...}, sequence: N}}
+```
+
 ### Concrete Example: User Management
 
 A complete walkthrough of building user CRUD operations on CYFR.
@@ -588,6 +670,9 @@ Handles all database operations via Supabase's REST API.
 **Setup:**
 
 ```bash
+# Create the catalyst project (if starting fresh)
+cyfr new catalyst supabase --version 0.2.0
+
 # Recommended: run cyfr setup to configure secrets, grants, and policies interactively
 cyfr setup
 
@@ -689,7 +774,7 @@ cyfr setup
 
 If you need fine-grained control or want to script individual policy changes, you can use the commands below directly.
 
-Before components can run, you need to configure Host Policies. Catalysts **require** a policy with `allowed_domains` — without it, execution is rejected with a `POLICY_REQUIRED` error. Reagents don't need policy.
+Before components can run, you need to configure Host Policies. Catalysts **require** a policy with at least one capability — `allowed_domains` (for HTTP access) and/or `allowed_paths` (for storage access) — without it, execution is rejected with a `POLICY_REQUIRED` error. Reagents don't need policy.
 
 ### Policy Fields
 
@@ -703,6 +788,8 @@ Before components can run, you need to configure Host Policies. Catalysts **requ
 | `max_request_size` | integer | 1048576 (1 MB) | Max input size in bytes |
 | `max_response_size` | integer | 5242880 (5 MB) | Max output size in bytes |
 | `allowed_tools` | string[] | `[]` (deny-all) | MCP tools allowed (for Formulas using `cyfr:mcp/tools`) |
+| `allowed_paths` | string[] | `[]` (deny-all) | Storage paths for `cyfr:storage/files`. Directory prefixes end with `/` (e.g. `"data/"`), exact files without (e.g. `"data/config.json"`), or `"*"` for all. Paths must start with `data/` or `components/`. Empty = hard deny. |
+| `allowed_actions` | string[] | `["read","write","list","delete","exists"]` | Storage actions the catalyst can perform. Default: all. |
 | `allowed_private_ips` | string[] | `[]` (deny-all) | Private IPs or CIDR ranges to allow (for on-prem/air-gapped deployments). `169.254.0.0/16` always blocked. |
 
 ### Setting Policies
@@ -753,13 +840,23 @@ cyfr policy set c:local.my-catalyst allowed_private_ips '["192.168.1.100", "10.0
 
 ### MCP Tool Policies (for Formulas)
 
-Formulas that use `cyfr:mcp/tools` need `allowed_tools` in their policy:
+Formulas that use `cyfr:mcp/tools` need `allowed_tools` in their policy. Formulas access the same tool registry as the CLI and UI — all registered tools are available (e.g., `component`, `execution`, `retention`, `build`, `policy`, `secret`, `guide`, `system`, `tools`), subject to the policy.
 
 ```bash
-cyfr policy set f:local.my-formula:0.1.0 allowed_tools '["component.search", "component.pull"]'
+# Allow specific tool actions
+cyfr policy set f:local.my-formula:0.1.0 allowed_tools '["component.search", "component.pull", "tools.list"]'
 ```
 
 Tool matching supports wildcards: `"component.*"` matches `component.search`, `component.list`, etc.
+
+Formulas can discover all available tools at runtime by calling `{"tool": "tools", "action": "list"}` (requires `tools.list` in `allowed_tools`).
+
+**Storage access** is handled by the `cyfr:storage/files@0.1.0` host function for catalysts. Set `allowed_paths` on the catalyst's policy:
+
+```bash
+# Allow storage paths on the files catalyst (empty list = hard deny)
+cyfr policy set c:local.files:0.1.0 allowed_paths '["data/", "components/"]'
+```
 
 ---
 
@@ -817,23 +914,38 @@ This assumes you've completed the Quick Start in the [README](README.md) (instal
 cyfr up
 cyfr login
 
-# 2. Register a component (using the included Claude example)
+# 2a. Use existing components (e.g., the included Claude catalyst)
 cyfr register
-
-# 3. Run setup to configure secrets, grants, and policies for your components
 cyfr setup
 
-# 4. Create an API key for your app
+# 2b. Or create a new component from scratch
+cyfr new catalyst my-api
+#     Edit components/catalysts/local/my-api/0.1.0/src/src/lib.rs
+cyfr build compile catalyst:local.my-api:0.1.0
+cyfr setup catalyst:local.my-api:0.1.0
+
+# 3. Create an API key for your app
 cyfr key create --name "my-app" --type secret
 
-# 5. Use the returned key in your app's Authorization header
+# 4. Use the returned key in your app's Authorization header
 #    Authorization: Bearer cyfr_sk_...
 ```
 
-The Prism dashboard is available at `http://localhost:4001` for visual monitoring of executions, builds, and components.
+The Prism dashboard is available at `http://localhost:4001` for visual monitoring of executions, builds, components, and real-time agent formula progress.
 
 From here, your app can POST to `/mcp` with the API key and execute any component you've configured.
 
-> **Development workflow**: When iterating on components, follow the loop: **build → register → run → iterate**. The `cyfr register` step is required after every rebuild because registration stores a SHA-256 digest of each WASM binary. If you rebuild a component without re-registering, `cyfr run` will reject it with: `Integrity check failed for <component>. Component may have been modified. Re-register with 'cyfr register'.`
->
-> **Note**: `cyfr register` is only needed for local/agent components developed in `components/`. Components installed via `cyfr pull` are written to `components/` and indexed automatically — no registration step required.
+### Development Workflow
+
+When iterating on components, the core loop is:
+
+```
+edit source → cyfr build compile <ref> → cyfr run <ref>
+```
+
+- `cyfr new <type> <name>` scaffolds a new component project (run once)
+- `cyfr build compile` compiles, saves the `.wasm` binary, and auto-registers in one step
+- `cyfr register` is only needed if you build components manually outside of `cyfr build compile`
+- Components installed via `cyfr pull` are written to `components/` and indexed automatically
+
+See the [Component Guide](component-guide.md) for the full development loop and component authoring details.

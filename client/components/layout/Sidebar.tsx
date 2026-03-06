@@ -1,0 +1,625 @@
+import { useState } from 'react';
+import { View, Text, Pressable, Alert, Platform } from 'react-native';
+import { Image } from 'expo-image';
+import { DrawerContentScrollView, type DrawerContentComponentProps } from '@react-navigation/drawer';
+import { useRouter, usePathname } from 'expo-router';
+import {
+  MessageSquare,
+  Settings,
+  LogOut,
+  Shield,
+  MoreVertical,
+  Trash2,
+  Users,
+  UserPlus,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Crown,
+} from 'lucide-react-native';
+import { useAuth } from '../../contexts/AuthContext';
+import { useSitDowns } from '../../hooks/useSitDowns';
+import { useCommission } from '../../hooks/useCommission';
+import { useCommissionSitDowns } from '../../hooks/useCommissionSitDowns';
+import { useRealtimeStatus } from '../../hooks/useRealtimeStatus';
+import { CreateSitdownModal } from '../sitdown/CreateSitdownModal';
+import { CreateCommissionSitDownModal } from '../commission/CreateCommissionSitDownModal';
+import { InviteToCommissionModal } from '../commission/InviteToCommissionModal';
+import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
+import { toast } from '../../lib/toast';
+import { Dropdown } from '../ui/Dropdown';
+
+// ── Tooltip (press-to-reveal description) ──────────────────────────────
+function SitDownTooltip({ description }: { description: string }) {
+  const [show, setShow] = useState(false);
+
+  return (
+    <Dropdown
+      open={show}
+      onClose={() => setShow(false)}
+      align="right"
+      trigger={
+        <Pressable onPress={() => setShow((s) => !s)} hitSlop={8}>
+          <Info size={12} color="#57534e" />
+        </Pressable>
+      }
+    >
+      <View className="px-2.5 py-1.5 w-48">
+        <Text className="text-[11px] leading-tight text-stone-300">
+          {description}
+        </Text>
+      </View>
+    </Dropdown>
+  );
+}
+
+// ── Pending-invites inline banner ──────────────────────────────────────
+function SidebarPendingInvites({
+  invites,
+  onAccept,
+  onDecline,
+}: {
+  invites: { id: string; profile?: { display_name?: string } | null }[];
+  onAccept: (id: string) => Promise<unknown>;
+  onDecline: (id: string) => Promise<unknown>;
+}) {
+  if (invites.length === 0) return null;
+
+  return (
+    <View className="mb-2 gap-1">
+      {invites.map((invite) => (
+        <View
+          key={invite.id}
+          className="rounded-lg border border-gold-600/30 bg-gold-600/10 px-3 py-2"
+        >
+          <Text className="mb-1.5 text-xs text-gold-500">
+            <Text className="font-semibold">
+              {invite.profile?.display_name ?? 'A Don'}
+            </Text>
+            {' wants you in The Commission'}
+          </Text>
+          <View className="flex-row gap-1.5">
+            <Pressable
+              onPress={async () => {
+                try {
+                  await onAccept(invite.id);
+                  toast.success('Welcome to The Commission.');
+                } catch {
+                  toast.error("Couldn't accept the invite.");
+                }
+              }}
+              className="flex-row items-center gap-1 rounded bg-gold-600 px-2 py-1"
+            >
+              <Text className="text-[11px] font-semibold text-stone-950">Accept</Text>
+            </Pressable>
+            <Pressable
+              onPress={async () => {
+                try {
+                  await onDecline(invite.id);
+                  toast.success('Invitation declined.');
+                } catch {
+                  toast.error("Couldn't decline the invite.");
+                }
+              }}
+              className="flex-row items-center gap-1 rounded border border-stone-700 px-2 py-1"
+            >
+              <Text className="text-[11px] text-stone-400">Decline</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ── Main Sidebar ───────────────────────────────────────────────────────
+export function Sidebar(props: DrawerContentComponentProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const { profile, isGodfather, tier, signOut } = useAuth();
+  const realtimeConnected = useRealtimeStatus();
+  const { sitDowns, deleteSitDown, markAsRead: markSitDownAsRead, refetch: refetchSitDowns } = useSitDowns();
+  const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
+  const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown, leaveSitDown: leaveCommissionSitDown, markAsRead: markCommissionAsRead } = useCommissionSitDowns();
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [showCommissionCreate, setShowCommissionCreate] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [showCommission, setShowCommission] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+
+  function closeDrawer() {
+    props.navigation.closeDrawer();
+  }
+
+  function handleSignOut() {
+    signOut();
+    router.replace('/(auth)/login');
+  }
+
+  async function handleDeleteSitDown(
+    id: string,
+    onDelete: (id: string) => Promise<void>,
+  ) {
+    const doDelete = async () => {
+      try {
+        await onDelete(id);
+        if (pathname === `/sitdown/${id}`) {
+          router.replace('/');
+        }
+        toast.success('The sit-down is over.');
+      } catch {
+        toast.error("Couldn't end the sit-down.");
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm("End this sit-down for everyone? All messages will be lost.")) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'End this sit-down?',
+        'End this sit-down for everyone? All messages will be lost.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ],
+      );
+    }
+  }
+
+  async function handleLeaveSitDown(id: string) {
+    const doLeave = async () => {
+      try {
+        await leaveCommissionSitDown(id);
+        if (pathname === `/sitdown/${id}`) {
+          router.replace('/');
+        }
+        toast.success("You've left the sit-down.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Couldn't leave the sit-down.");
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Leave this sit-down? You can be re-invited later.')) {
+        doLeave();
+      }
+    } else {
+      Alert.alert(
+        'Leave this sit-down?',
+        'You can be re-invited later.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Leave', style: 'destructive', onPress: doLeave },
+        ],
+      );
+    }
+  }
+
+  function renderSitDownItem(
+    sd: { id: string; name: string; description?: string | null; created_by?: string; is_commission?: boolean; unread_count?: number },
+    icon: React.ReactNode,
+    onDelete: (id: string) => Promise<void>,
+    onMarkRead?: (id: string) => void,
+  ) {
+    const isActive = pathname === `/sitdown/${sd.id}`;
+    const isCommission = sd.is_commission === true;
+    const isAdmin = !isCommission || sd.created_by === profile?.id;
+    const unread = sd.unread_count ?? 0;
+
+    return (
+      <View key={sd.id} className={`flex-row items-center rounded-lg ${isActive ? 'bg-stone-800' : ''}`}>
+        <Pressable
+          onPress={() => {
+            setMenuOpen(null);
+            onMarkRead?.(sd.id);
+            closeDrawer();
+            router.push(`/sitdown/${sd.id}`);
+          }}
+          className="min-w-0 flex-1 flex-row items-center gap-2 px-3 py-2"
+        >
+          {icon}
+          <Text
+            numberOfLines={1}
+            className={`flex-1 text-sm ${
+              isActive ? 'text-gold-500' : 'text-stone-300'
+            }`}
+          >
+            {sd.name}
+          </Text>
+          {unread > 0 && !isActive && (
+            <View className="h-4 min-w-[16px] items-center justify-center rounded-full bg-gold-600 px-1">
+              <Text className="text-[10px] font-bold text-stone-950">
+                {unread > 99 ? '99+' : unread}
+              </Text>
+            </View>
+          )}
+          {sd.description ? <SitDownTooltip description={sd.description} /> : null}
+        </Pressable>
+
+        {/* Context-menu trigger */}
+        <Dropdown
+          open={menuOpen === sd.id}
+          onClose={() => setMenuOpen(null)}
+          align="right"
+          trigger={
+            <Pressable
+              onPress={() => setMenuOpen(menuOpen === sd.id ? null : sd.id)}
+              style={{ padding: 4 }}
+              hitSlop={6}
+            >
+              <MoreVertical size={14} color="#78716c" />
+            </Pressable>
+          }
+        >
+          {isCommission && !isAdmin ? (
+            <Pressable
+              onPress={() => {
+                setMenuOpen(null);
+                handleLeaveSitDown(sd.id);
+              }}
+              className="flex-row items-center gap-2 px-3 py-1.5"
+              style={{ width: 144 }}
+            >
+              <LogOut size={14} color="#f59e0b" />
+              <Text className="text-sm text-amber-500">Leave</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => {
+                setMenuOpen(null);
+                handleDeleteSitDown(sd.id, onDelete);
+              }}
+              className="flex-row items-center gap-2 px-3 py-1.5"
+              style={{ width: 144 }}
+            >
+              <Trash2 size={14} color="#f87171" />
+              <Text className="text-sm text-red-400">Delete</Text>
+            </Pressable>
+          )}
+        </Dropdown>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <View className="flex-1 bg-stone-900">
+        {/* Header */}
+        <Pressable
+          onPress={() => {
+            closeDrawer();
+            router.push('/');
+          }}
+          className="flex-row items-center gap-2 border-b border-stone-800 px-4 py-4"
+        >
+          <Image
+            source={require('../../assets/images/logo.png')}
+            style={{ width: 32, height: 32, borderRadius: 8 }}
+          />
+          <Text className="font-serif text-xl font-bold text-gold-500">
+            The Family
+          </Text>
+        </Pressable>
+
+        {/* Scrollable content */}
+        <DrawerContentScrollView
+          {...props}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}
+          style={{ backgroundColor: '#1c1917' }}
+        >
+          <View>
+            {/* ── Personal Sit-downs ─────────────────────── */}
+            <Text className="mb-1 text-xs font-semibold uppercase tracking-wider text-stone-500">
+              Sit-downs
+            </Text>
+            <Pressable
+              onPress={() => setShowCreate(true)}
+              className="mb-2 w-full rounded-lg bg-gold-600 px-3 py-2"
+            >
+              <Text className="text-center font-serif text-sm font-bold text-stone-950">
+                Call a Sit-down
+              </Text>
+            </Pressable>
+
+            <View style={{ gap: 2 }}>
+              {sitDowns.map((sd) =>
+                renderSitDownItem(
+                  sd,
+                  <MessageSquare size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />,
+                  deleteSitDown,
+                  markSitDownAsRead,
+                ),
+              )}
+              {sitDowns.length === 0 && (
+                <Text className="px-3 py-4 text-center text-xs text-stone-600">
+                  No sit-downs yet. Start one.
+                </Text>
+              )}
+            </View>
+
+            {/* ── Commission Sit-downs ────────────────────── */}
+            <View className="mt-6 border-t border-stone-800 pt-4">
+              <Text className="mb-1 text-xs font-semibold uppercase tracking-wider text-stone-500">
+                Commission Sit-downs
+              </Text>
+              <Pressable
+                onPress={() => setShowCommissionCreate(true)}
+                className="mb-2 w-full rounded-lg bg-gold-600 px-3 py-2"
+              >
+                <Text className="text-center font-serif text-sm font-bold text-stone-950">
+                  Call a Sit-down
+                </Text>
+              </Pressable>
+
+              <View style={{ gap: 2 }}>
+                {commissionSitDowns.map((sd) =>
+                  renderSitDownItem(
+                    sd,
+                    <Users size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />,
+                    deleteCommissionSitDown,
+                    markCommissionAsRead,
+                  ),
+                )}
+                {commissionSitDowns.length === 0 && (
+                  <Text className="px-3 py-4 text-center text-xs text-stone-600">
+                    No commission sit-downs yet.
+                  </Text>
+                )}
+              </View>
+            </View>
+          </View>
+        </DrawerContentScrollView>
+
+        {/* ── Bottom navigation ──────────────────────────── */}
+        <View className="border-t border-stone-800 p-3 gap-0.5">
+          {/* The Commission (expandable contact list) */}
+          <Pressable
+            onPress={() => setShowCommission((s) => !s)}
+            className="flex-row items-center gap-2 rounded-lg px-3 py-2"
+          >
+            <Users size={16} color="#d6d3d1" />
+            <Text className="flex-1 text-sm text-stone-300">The Commission</Text>
+            {pendingInvites.length > 0 && (
+              <View className="h-4 min-w-[16px] items-center justify-center rounded-full bg-gold-600 px-1">
+                <Text className="text-[10px] font-bold text-stone-950">
+                  {pendingInvites.length}
+                </Text>
+              </View>
+            )}
+            {showCommission
+              ? <ChevronDown size={14} color="#78716c" />
+              : <ChevronUp size={14} color="#78716c" />
+            }
+          </Pressable>
+
+          {showCommission && (
+            <View className="ml-2 mt-1 gap-1.5 border-l border-stone-800 pl-3 pb-1">
+              <SidebarPendingInvites
+                invites={pendingInvites}
+                onAccept={acceptInvite}
+                onDecline={declineInvite}
+              />
+
+              {/* Outgoing pending invites */}
+              {sentInvites.map((c) => (
+                <View key={c.id} className="flex-row items-center gap-2 rounded-md px-2 py-1 opacity-60">
+                  <View className="h-5 w-5 items-center justify-center rounded-full bg-stone-700">
+                    <Text className="text-[9px] font-bold text-stone-400">
+                      {c.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                    </Text>
+                  </View>
+                  <Text numberOfLines={1} className="flex-1 text-xs italic text-stone-500">
+                    {c.contact_profile?.display_name ?? 'Don'}
+                  </Text>
+                  <Text className="text-[10px] text-stone-600">Pending...</Text>
+                </View>
+              ))}
+
+              {/* Contact list */}
+              {contacts.map((c) => {
+                const contactName = c.contact_profile?.display_name ?? 'this Don';
+                return (
+                  <View key={c.id} className="flex-row items-center gap-2 rounded-md px-2 py-1">
+                    <View className="h-5 w-5 items-center justify-center rounded-full bg-gold-600">
+                      <Text className="text-[9px] font-bold text-stone-950">
+                        {c.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                      </Text>
+                    </View>
+                    <Text numberOfLines={1} className="flex-1 text-xs text-stone-400">
+                      {c.contact_profile?.display_name ?? 'Don'}
+                    </Text>
+                    <Dropdown
+                      open={menuOpen === `contact-${c.id}`}
+                      onClose={() => setMenuOpen(null)}
+                      align="right"
+                      trigger={
+                        <Pressable
+                          onPress={() => setMenuOpen(menuOpen === `contact-${c.id}` ? null : `contact-${c.id}`)}
+                          style={{ padding: 4 }}
+                          hitSlop={6}
+                        >
+                          <MoreVertical size={12} color="#78716c" />
+                        </Pressable>
+                      }
+                    >
+                      <Pressable
+                        onPress={() => {
+                          setMenuOpen(null);
+                          const msg = `Remove ${contactName} from The Commission?`;
+                          const doRemove = async () => {
+                            try {
+                              await removeContact(c.contact_user_id);
+                              toast.success(`${contactName} has been removed.`);
+                            } catch {
+                              toast.error("Couldn't remove contact.");
+                            }
+                          };
+                          if (Platform.OS === 'web') {
+                            if (window.confirm(msg)) doRemove();
+                          } else {
+                            Alert.alert('Remove contact', msg, [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Remove', style: 'destructive', onPress: doRemove },
+                            ]);
+                          }
+                        }}
+                        className="flex-row items-center gap-2 px-3 py-1.5"
+                        style={{ width: 144 }}
+                      >
+                        <Trash2 size={14} color="#f87171" />
+                        <Text className="text-sm text-red-400">Remove</Text>
+                      </Pressable>
+                    </Dropdown>
+                  </View>
+                );
+              })}
+
+              {contacts.length === 0 && pendingInvites.length === 0 && sentInvites.length === 0 && (
+                <Text className="px-2 py-1 text-[11px] text-stone-600">
+                  No contacts yet.
+                </Text>
+              )}
+
+              <Pressable
+                onPress={() => setShowInvite(true)}
+                className="flex-row items-center gap-2 rounded-md px-2 py-1"
+              >
+                <UserPlus size={12} color="#d97706" />
+                <Text className="text-xs text-gold-500">Invite a Don</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Members link */}
+          <Pressable
+            onPress={() => {
+              closeDrawer();
+              router.push('/members');
+            }}
+            className={`flex-row items-center gap-2 rounded-lg px-3 py-2 ${
+              pathname === '/members' ? 'bg-stone-800' : ''
+            }`}
+          >
+            <Shield size={16} color={pathname === '/members' ? '#d97706' : '#d6d3d1'} />
+            <Text className={`text-sm ${pathname === '/members' ? 'text-gold-500' : 'text-stone-300'}`}>
+              Members
+            </Text>
+          </Pressable>
+
+          {/* Admin link (godfather only) */}
+          {isGodfather && (
+            <Pressable
+              onPress={() => {
+                closeDrawer();
+                router.push('/admin');
+              }}
+              className={`flex-row items-center gap-2 rounded-lg px-3 py-2 ${
+                pathname === '/admin' ? 'bg-stone-800' : ''
+              }`}
+            >
+              <Crown size={16} color={pathname === '/admin' ? '#d97706' : '#d6d3d1'} />
+              <Text className={`text-sm ${pathname === '/admin' ? 'text-gold-500' : 'text-stone-300'}`}>
+                Admin
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Settings link */}
+          <Pressable
+            onPress={() => {
+              closeDrawer();
+              router.push('/settings');
+            }}
+            className={`flex-row items-center gap-2 rounded-lg px-3 py-2 ${
+              pathname === '/settings' ? 'bg-stone-800' : ''
+            }`}
+          >
+            <Settings size={16} color={pathname === '/settings' ? '#d97706' : '#d6d3d1'} />
+            <Text className={`text-sm ${pathname === '/settings' ? 'text-gold-500' : 'text-stone-300'}`}>
+              Settings
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ── User profile section ───────────────────────── */}
+        <View className="border-t border-stone-800 p-3">
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center gap-2 flex-1 min-w-0">
+              <View className="h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-600">
+                <Text className="text-sm font-bold text-stone-950">
+                  {profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                </Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text numberOfLines={1} className="text-sm text-stone-300">
+                  {profile?.display_name ?? 'Don'}
+                </Text>
+                <View className="flex-row items-center gap-1.5 flex-wrap mt-0.5">
+                  <View className={`rounded px-1.5 py-0.5 ${TIER_COLORS[tier]}`}>
+                    <Text className={`text-[9px] font-semibold ${
+                      tier === 'associate' ? 'text-stone-300' : 'text-stone-950'
+                    }`}>
+                      {TIER_LABELS[tier]}
+                    </Text>
+                  </View>
+                  <View className={`flex-row items-center gap-1 rounded px-1.5 py-0.5 ${
+                    realtimeConnected
+                      ? 'bg-emerald-900/50'
+                      : 'bg-red-900/50'
+                  }`}>
+                    <View className={`h-1.5 w-1.5 rounded-full ${
+                      realtimeConnected ? 'bg-emerald-400' : 'bg-red-400'
+                    }`} />
+                    <Text className={`text-[9px] font-semibold ${
+                      realtimeConnected ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {realtimeConnected ? 'Wired in' : 'Dark'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+            <Pressable
+              onPress={handleSignOut}
+              className="rounded-md p-1.5"
+              hitSlop={6}
+            >
+              <LogOut size={16} color="#a8a29e" />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      {/* ── Modals ──────────────────────────────────────── */}
+      <CreateSitdownModal
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => {
+          setShowCreate(false);
+          closeDrawer();
+          refetchSitDowns();
+          router.push(`/sitdown/${id}`);
+        }}
+      />
+
+      <CreateCommissionSitDownModal
+        visible={showCommissionCreate}
+        onClose={() => setShowCommissionCreate(false)}
+        onCreated={(id) => {
+          setShowCommissionCreate(false);
+          closeDrawer();
+          router.push(`/sitdown/${id}`);
+        }}
+      />
+
+      <InviteToCommissionModal
+        visible={showInvite}
+        onClose={() => setShowInvite(false)}
+      />
+    </>
+  );
+}

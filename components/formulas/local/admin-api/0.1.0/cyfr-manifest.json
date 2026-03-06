@@ -18,7 +18,7 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["list_users", "update_tier", "catalog_list", "catalog_add", "catalog_update", "catalog_delete", "catalog_toggle"],
+          "enum": ["list_users", "update_tier", "catalog_list", "catalog_add", "catalog_update", "catalog_delete_preview", "catalog_delete", "catalog_toggle"],
           "description": "The admin operation to perform"
         },
         "access_token": {
@@ -73,6 +73,10 @@
         "entry": {
           "type": "object",
           "description": "Created catalog entry (catalog_add action)"
+        },
+        "affected_member_count": {
+          "type": "integer",
+          "description": "Number of members using this model (catalog_delete_preview action)"
         },
         "deleted": {
           "type": "boolean",

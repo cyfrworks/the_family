@@ -132,16 +132,12 @@ fn get_state(access_token: &str) -> Result<String, String> {
     )
     .unwrap_or(Value::Array(vec![]));
 
-    // Commission sit-downs
+    // Commission sit-downs (with unread counts)
     let commission_sit_downs = supabase_call(
-        "db.select",
+        "db.rpc",
         json!({
-            "table": "sit_downs",
-            "select": "*",
-            "filters": [
-                { "column": "is_commission", "op": "eq", "value": "true" }
-            ],
-            "order": [{ "column": "created_at", "direction": "desc" }],
+            "function": "list_commission_sit_downs_with_unread",
+            "body": {},
             "access_token": access_token
         }),
     )
@@ -214,12 +210,16 @@ fn remove(access_token: &str, contact_user_id: &str) -> Result<String, String> {
 
 fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": operation,
-            "params": params
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": operation,
+                "params": params
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -231,10 +231,11 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
         return Err(format!("Supabase invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {
@@ -246,14 +247,18 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
 
 fn fetch_user(access_token: &str) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": "auth.user",
-            "params": {
-                "access_token": access_token
-            }
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": "auth.user",
+                "params": {
+                    "access_token": access_token
+                }
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -265,10 +270,11 @@ fn fetch_user(access_token: &str) -> Result<Value, String> {
         return Err(format!("Auth error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {

@@ -71,6 +71,13 @@ fn handle_request(input: &str) -> Result<String, String> {
                 .ok_or("Missing required 'catalog_updates'")?;
             catalog_update(access_token, catalog_id, updates)
         }
+        "catalog_delete_preview" => {
+            let catalog_id = parsed
+                .get("catalog_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'catalog_id'")?;
+            catalog_delete_preview(access_token, catalog_id)
+        }
         "catalog_delete" => {
             let catalog_id = parsed
                 .get("catalog_id")
@@ -124,6 +131,46 @@ fn verify_godfather(access_token: &str) -> Result<Value, String> {
     }
 
     Ok(user)
+}
+
+/// Return the caller's tier without requiring godfather access.
+fn fetch_user_tier(access_token: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    let profiles = supabase_call(
+        "db.select",
+        json!({
+            "table": "profiles",
+            "select": "tier",
+            "filters": [
+                { "column": "id", "op": "eq", "value": user_id }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    let tier = profiles
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|p| p.get("tier"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("associate");
+
+    Ok(tier.to_string())
+}
+
+/// Map tier names to numeric levels for comparison.
+fn tier_level(tier: &str) -> u8 {
+    match tier {
+        "godfather" => 3,
+        "boss" => 2,
+        "associate" => 1,
+        _ => 0,
+    }
 }
 
 fn list_users(access_token: &str) -> Result<String, String> {
@@ -180,7 +227,8 @@ fn update_tier(access_token: &str, user_id: &str, tier: &str) -> Result<String, 
 // ---------------------------------------------------------------------------
 
 fn catalog_list(access_token: &str) -> Result<String, String> {
-    verify_godfather(access_token)?;
+    let tier = fetch_user_tier(access_token)?;
+    let is_godfather = tier == "godfather";
 
     let catalog = supabase_call(
         "db.select",
@@ -195,26 +243,51 @@ fn catalog_list(access_token: &str) -> Result<String, String> {
         }),
     )?;
 
+    // Godfathers see everything (including inactive); others see only
+    // active models whose min_tier they meet.
+    let filtered: Vec<Value> = if is_godfather {
+        catalog.as_array().cloned().unwrap_or_default()
+    } else {
+        catalog
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|entry| {
+                let active = entry
+                    .get("is_active")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if !active {
+                    return false;
+                }
+                let min_tier = entry
+                    .get("min_tier")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("associate");
+                tier_level(&tier) >= tier_level(min_tier)
+            })
+            .collect()
+    };
+
     // Group models by provider server-side so the frontend doesn't need
     // a hardcoded provider list. New providers appear automatically.
     let mut by_provider: serde_json::Map<String, Value> = serde_json::Map::new();
-    if let Some(arr) = catalog.as_array() {
-        for entry in arr {
-            let provider = entry
-                .get("provider")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            by_provider
-                .entry(provider.to_string())
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-                .unwrap()
-                .push(entry.clone());
-        }
+    for entry in &filtered {
+        let provider = entry
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        by_provider
+            .entry(provider.to_string())
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .unwrap()
+            .push(entry.clone());
     }
 
     Ok(json!({
-        "catalog": catalog,
+        "catalog": filtered,
         "by_provider": by_provider
     })
     .to_string())
@@ -245,7 +318,7 @@ fn catalog_add(access_token: &str, entry: &Value) -> Result<String, String> {
     }
 
     match provider {
-        "claude" | "openai" | "gemini" => {}
+        "claude" | "openai" | "gemini" | "grok" | "openrouter" => {}
         _ => return Err(format!("Invalid provider: {provider}")),
     }
 
@@ -330,6 +403,26 @@ fn catalog_update(access_token: &str, catalog_id: &str, updates: &Value) -> Resu
     Ok(json!({ "updated": updated }).to_string())
 }
 
+fn catalog_delete_preview(access_token: &str, catalog_id: &str) -> Result<String, String> {
+    verify_godfather(access_token)?;
+
+    let members = supabase_call(
+        "db.select",
+        json!({
+            "table": "members",
+            "select": "id",
+            "filters": [
+                { "column": "catalog_model_id", "op": "eq", "value": catalog_id }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    let count = members.as_array().map(|a| a.len()).unwrap_or(0);
+
+    Ok(json!({ "affected_member_count": count }).to_string())
+}
+
 fn catalog_delete(access_token: &str, catalog_id: &str) -> Result<String, String> {
     verify_godfather(access_token)?;
 
@@ -394,12 +487,16 @@ fn catalog_toggle(access_token: &str, catalog_id: &str) -> Result<String, String
 
 fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": operation,
-            "params": params
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": operation,
+                "params": params
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -411,10 +508,11 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
         return Err(format!("Supabase invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {
@@ -426,14 +524,18 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
 
 fn fetch_user(access_token: &str) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": "auth.user",
-            "params": {
-                "access_token": access_token
-            }
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": "auth.user",
+                "params": {
+                    "access_token": access_token
+                }
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -445,10 +547,11 @@ fn fetch_user(access_token: &str) -> Result<Value, String> {
         return Err(format!("Auth error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {

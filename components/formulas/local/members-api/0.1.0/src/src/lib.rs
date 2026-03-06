@@ -238,6 +238,11 @@ fn update_member(access_token: &str, member_id: &str, updates: &Value) -> Result
         }
     }
 
+    // Reject explicit null on catalog_model_id — members must always have a valid model
+    if updates.get("catalog_model_id") == Some(&Value::Null) {
+        return Err("catalog_model_id cannot be null — please select a valid model".to_string());
+    }
+
     // If catalog_model_id is being changed, validate tier access
     if let Some(new_model_id) = updates.get("catalog_model_id").and_then(|v| v.as_str()) {
         let caller_profile = supabase_call(
@@ -358,12 +363,16 @@ fn tier_has_access(user_tier: &str, min_tier: &str) -> bool {
 
 fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": operation,
-            "params": params
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": operation,
+                "params": params
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -375,10 +384,11 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
         return Err(format!("Supabase invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {
@@ -390,14 +400,18 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
 
 fn fetch_user(access_token: &str) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": "auth.user",
-            "params": {
-                "access_token": access_token
-            }
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": "auth.user",
+                "params": {
+                    "access_token": access_token
+                }
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -409,10 +423,11 @@ fn fetch_user(access_token: &str) -> Result<Value, String> {
         return Err(format!("Auth error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {

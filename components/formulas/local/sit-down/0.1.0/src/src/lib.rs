@@ -30,9 +30,11 @@ bindings::export!(Component with_types_in bindings);
 // ---------------------------------------------------------------------------
 
 const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
-const CLAUDE_REF: &str = "catalyst:moonmoon69.claude:0.2.0";
-const OPENAI_REF: &str = "catalyst:moonmoon69.openai:0.2.0";
-const GEMINI_REF: &str = "catalyst:moonmoon69.gemini:0.2.0";
+const CLAUDE_REF: &str = "catalyst:moonmoon69.claude:1.0.0";
+const OPENAI_REF: &str = "catalyst:moonmoon69.openai:1.0.0";
+const GEMINI_REF: &str = "catalyst:moonmoon69.gemini:1.0.0";
+const OPENROUTER_REF: &str = "catalyst:moonmoon69.openrouter:1.0.0";
+const GROK_REF: &str = "catalyst:moonmoon69.grok:1.0.0";
 const MENTION_PARSER_REF: &str = "reagent:local.mention-parser:0.1.0";
 const SELF_REF: &str = "formula:local.sit-down:0.1.0";
 const MAX_ALL_MENTIONS: usize = 5;
@@ -101,6 +103,18 @@ fn handle_request(input: &str) -> Result<String, String> {
             let sit_down_id = require_sit_down_id(&parsed)?;
             delete_commission_sit_down(access_token, sit_down_id)
         }
+        "leave_commission" => {
+            let sit_down_id = require_sit_down_id(&parsed)?;
+            leave_commission_sit_down(access_token, sit_down_id)
+        }
+        "toggle_admin" => {
+            let sit_down_id = require_sit_down_id(&parsed)?;
+            let user_id = parsed
+                .get("user_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'user_id'")?;
+            toggle_admin(access_token, sit_down_id, user_id)
+        }
 
         // Participant management (requires sit_down_id)
         "get" => {
@@ -136,10 +150,24 @@ fn handle_request(input: &str) -> Result<String, String> {
             remove_participant(access_token, sit_down_id, participant_id)
         }
 
+        // Read receipts
+        "mark_read" => {
+            let sit_down_id = require_sit_down_id(&parsed)?;
+            mark_read(access_token, sit_down_id)
+        }
+
+        // Combined enter: single RPC returns everything for page render
+        "enter" => {
+            let sit_down_id = require_sit_down_id(&parsed)?;
+            enter_sit_down(access_token, sit_down_id)
+        }
+
         // Messaging
         "list_messages" => {
             let sit_down_id = require_sit_down_id(&parsed)?;
-            list_messages(access_token, sit_down_id)
+            let before = parsed.get("before").and_then(|v| v.as_str());
+            let limit = parsed.get("limit").and_then(|v| v.as_u64()).unwrap_or(50);
+            list_messages(access_token, sit_down_id, before, limit)
         }
         "send_message" => {
             let sit_down_id = require_sit_down_id(&parsed)?;
@@ -181,14 +209,10 @@ fn require_sit_down_id<'a>(parsed: &'a Value) -> Result<&'a str, String> {
 
 fn list_sit_downs(access_token: &str) -> Result<String, String> {
     let sit_downs = supabase_call(
-        "db.select",
+        "db.rpc",
         json!({
-            "table": "sit_downs",
-            "select": "*",
-            "filters": [
-                { "column": "is_commission", "op": "eq", "value": "false" }
-            ],
-            "order": [{ "column": "created_at", "direction": "desc" }],
+            "function": "list_sit_downs_with_unread",
+            "body": {},
             "access_token": access_token
         }),
     )?;
@@ -307,31 +331,33 @@ fn delete_commission_sit_down(access_token: &str, sit_down_id: &str) -> Result<S
         .and_then(|v| v.as_str())
         .ok_or("Could not determine user ID from token")?;
 
-    let sit_downs = supabase_call(
+    // Check caller is an admin participant
+    let participants = supabase_call(
         "db.select",
         json!({
-            "table": "sit_downs",
-            "select": "id,created_by,is_commission",
+            "table": "sit_down_participants",
+            "select": "id,is_admin",
             "filters": [
-                { "column": "id", "op": "eq", "value": sit_down_id }
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                { "column": "user_id", "op": "eq", "value": user_id }
             ],
             "limit": 1,
             "access_token": access_token
         }),
     )?;
 
-    let sit_down = sit_downs
+    let participant = participants
         .as_array()
         .and_then(|arr| arr.first())
-        .ok_or("Commission sit-down not found")?;
+        .ok_or("You are not a participant in this sit-down")?;
 
-    let created_by = sit_down
-        .get("created_by")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let is_admin = participant
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
-    if created_by != user_id {
-        return Err("Only the creator can delete a commission sit-down".to_string());
+    if !is_admin {
+        return Err("Only admins can delete a commission sit-down".to_string());
     }
 
     supabase_call_once(
@@ -348,11 +374,200 @@ fn delete_commission_sit_down(access_token: &str, sit_down_id: &str) -> Result<S
     Ok(json!({ "deleted": true }).to_string())
 }
 
+fn leave_commission_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    // Find caller's participant row
+    let participants = supabase_call(
+        "db.select",
+        json!({
+            "table": "sit_down_participants",
+            "select": "id,is_admin",
+            "filters": [
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                { "column": "user_id", "op": "eq", "value": user_id }
+            ],
+            "limit": 1,
+            "access_token": access_token
+        }),
+    )?;
+
+    let participant = participants
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or("You are not a participant in this sit-down")?;
+
+    let participant_id = participant
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine participant ID")?;
+
+    let is_admin = participant
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // If admin, check there's at least one other admin
+    if is_admin {
+        let other_admins = supabase_call(
+            "db.select",
+            json!({
+                "table": "sit_down_participants",
+                "select": "id",
+                "filters": [
+                    { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                    { "column": "is_admin", "op": "eq", "value": "true" },
+                    { "column": "user_id", "op": "neq", "value": user_id }
+                ],
+                "limit": 1,
+                "access_token": access_token
+            }),
+        )?;
+
+        let count = other_admins
+            .as_array()
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+
+        if count == 0 {
+            return Err("You're the last admin \u{2014} delete the sit-down instead".to_string());
+        }
+    }
+
+    // Delete the participant row
+    supabase_call_once(
+        "db.delete",
+        json!({
+            "table": "sit_down_participants",
+            "filters": [
+                { "column": "id", "op": "eq", "value": participant_id }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "left": true }).to_string())
+}
+
+fn toggle_admin(access_token: &str, sit_down_id: &str, target_user_id: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let caller_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    // Check caller is an admin participant
+    let caller_rows = supabase_call(
+        "db.select",
+        json!({
+            "table": "sit_down_participants",
+            "select": "id,is_admin",
+            "filters": [
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                { "column": "user_id", "op": "eq", "value": caller_id }
+            ],
+            "limit": 1,
+            "access_token": access_token
+        }),
+    )?;
+
+    let caller_row = caller_rows
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or("You are not a participant in this sit-down")?;
+
+    let caller_is_admin = caller_row
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !caller_is_admin {
+        return Err("Only admins can change admin status".to_string());
+    }
+
+    // Find target participant
+    let target_rows = supabase_call(
+        "db.select",
+        json!({
+            "table": "sit_down_participants",
+            "select": "id,is_admin",
+            "filters": [
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                { "column": "user_id", "op": "eq", "value": target_user_id }
+            ],
+            "limit": 1,
+            "access_token": access_token
+        }),
+    )?;
+
+    let target_row = target_rows
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or("User is not a participant")?;
+
+    let target_participant_id = target_row
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine target participant ID")?;
+
+    let target_is_admin = target_row
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // If demoting, ensure at least one other admin remains
+    if target_is_admin {
+        let other_admins = supabase_call(
+            "db.select",
+            json!({
+                "table": "sit_down_participants",
+                "select": "id",
+                "filters": [
+                    { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                    { "column": "is_admin", "op": "eq", "value": "true" },
+                    { "column": "user_id", "op": "neq", "value": target_user_id }
+                ],
+                "limit": 1,
+                "access_token": access_token
+            }),
+        )?;
+
+        let count = other_admins
+            .as_array()
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+
+        if count == 0 {
+            return Err("Can't remove the last admin".to_string());
+        }
+    }
+
+    let new_is_admin = !target_is_admin;
+
+    supabase_call_once(
+        "db.update",
+        json!({
+            "table": "sit_down_participants",
+            "body": { "is_admin": new_is_admin },
+            "filters": [
+                { "column": "id", "op": "eq", "value": target_participant_id }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "toggled": true, "is_admin": new_is_admin }).to_string())
+}
+
 // ---------------------------------------------------------------------------
 // 3. Participant management (from sit-down-api)
 // ---------------------------------------------------------------------------
 
-/// Combined get: returns sit_down metadata + participants + commission members in one call.
+/// Combined get: returns sit_down metadata + participants + commission members + last_read_at in one call.
 /// Eliminates the need for separate get + list_participants round-trips.
 fn get_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
     let sit_downs = supabase_call(
@@ -385,6 +600,28 @@ fn get_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String>
             "access_token": access_token
         }),
     )?;
+
+    // Fetch caller's read receipt for "new messages" divider
+    let read_receipts = supabase_call(
+        "db.select",
+        json!({
+            "table": "sit_down_read_receipts",
+            "select": "last_read_at",
+            "filters": [
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
+            ],
+            "limit": 1,
+            "access_token": access_token
+        }),
+    )
+    .unwrap_or(Value::Array(vec![]));
+
+    let last_read_at = read_receipts
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|r| r.get("last_read_at"))
+        .cloned()
+        .unwrap_or(Value::Null);
 
     let is_commission = sit_down
         .get("is_commission")
@@ -422,7 +659,8 @@ fn get_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String>
         "sit_down": sit_down,
         "participants": participants,
         "commission_members": commission_members,
-        "is_commission": is_commission
+        "is_commission": is_commission,
+        "last_read_at": last_read_at
     })
     .to_string())
 }
@@ -604,24 +842,71 @@ fn remove_participant(
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Read receipts
+// ---------------------------------------------------------------------------
+
+fn mark_read(access_token: &str, sit_down_id: &str) -> Result<String, String> {
+    supabase_call(
+        "db.rpc",
+        json!({
+            "function": "mark_sit_down_read",
+            "body": { "p_sit_down_id": sit_down_id },
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "marked": true }).to_string())
+}
+
+// ---------------------------------------------------------------------------
 // 4. Messaging: list_messages + unified send_message
 // ---------------------------------------------------------------------------
 
-fn list_messages(access_token: &str, sit_down_id: &str) -> Result<String, String> {
+// ---------------------------------------------------------------------------
+// Combined enter: single RPC returns sit-down + participants + messages + read receipt
+// ---------------------------------------------------------------------------
+
+fn enter_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
+    let result = supabase_call(
+        "db.rpc",
+        json!({
+            "function": "enter_sit_down",
+            "body": { "p_sit_down_id": sit_down_id },
+            "access_token": access_token
+        }),
+    )?;
+
+    // The RPC returns jsonb directly — pass it through
+    Ok(result.to_string())
+}
+
+fn list_messages(access_token: &str, sit_down_id: &str, before: Option<&str>, limit: u64) -> Result<String, String> {
+    let mut filters = vec![
+        json!({ "column": "sit_down_id", "op": "eq", "value": sit_down_id }),
+    ];
+
+    if let Some(before_ts) = before {
+        filters.push(json!({ "column": "created_at", "op": "lt", "value": before_ts }));
+    }
+
     let messages = supabase_call(
         "db.select",
         json!({
             "table": "messages",
             "select": "*,profile:profiles(*),member:members(*,catalog_model:model_catalog(*))",
-            "filters": [
-                { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
-            ],
-            "order": [{ "column": "created_at", "direction": "asc" }],
+            "filters": filters,
+            "order": [{ "column": "created_at", "direction": "desc" }],
+            "limit": limit,
             "access_token": access_token
         }),
     )?;
 
-    Ok(json!({ "messages": messages }).to_string())
+    // Reverse to ascending order for display
+    let messages_arr = messages.as_array().cloned().unwrap_or_default();
+    let reversed: Vec<Value> = messages_arr.into_iter().rev().collect();
+    let has_more = reversed.len() as u64 == limit;
+
+    Ok(json!({ "messages": reversed, "has_more": has_more }).to_string())
 }
 
 fn send_message(
@@ -792,9 +1077,13 @@ fn send_message(
         }
 
         let spawn_request = json!({
-            "reference": SELF_REF,
-            "input": spawn_input,
-            "type": "formula"
+            "tool": "execution",
+            "action": "run",
+            "args": {
+                "reference": SELF_REF,
+                "input": spawn_input,
+                "type": "formula"
+            }
         });
 
         let spawn_response_str = invoke::spawn(&spawn_request.to_string());
@@ -850,7 +1139,7 @@ fn send_message(
             continue;
         }
 
-        let output = batch_result.get("output").cloned().unwrap_or(Value::Null);
+        let output = batch_result.get("result").cloned().unwrap_or(Value::Null);
         let result = match &output {
             Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
             _ => output,
@@ -933,9 +1222,15 @@ fn respond_member(
         .cloned()
         .ok_or_else(|| format!("Member '{member_id}' not found in participants context"))?;
 
+    let member_name = member
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
+
     let catalog_model = member
         .get("catalog_model")
-        .ok_or("Member has no catalog_model assigned")?;
+        .filter(|v| !v.is_null())
+        .ok_or_else(|| format!("{member_name}'s model has been removed. Please assign a new model."))?;
 
     let provider = catalog_model
         .get("provider")
@@ -946,11 +1241,6 @@ fn respond_member(
         .get("model")
         .and_then(|v| v.as_str())
         .ok_or("catalog_model missing 'model'")?;
-
-    let member_name = member
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown");
 
     // 2. Insert typing indicator
     insert_typing_indicator(sit_down_id, member_id, member_name, user_id, access_token);
@@ -1214,6 +1504,8 @@ fn resolve_provider_ref(provider: &str) -> Result<(String, String), String> {
         "claude" => Ok((CLAUDE_REF.to_string(), "claude".to_string())),
         "openai" => Ok((OPENAI_REF.to_string(), "openai".to_string())),
         "gemini" => Ok((GEMINI_REF.to_string(), "gemini".to_string())),
+        "openrouter" => Ok((OPENROUTER_REF.to_string(), "openai".to_string())),
+        "grok" => Ok((GROK_REF.to_string(), "openai".to_string())),
         _ => Err(format!("Unsupported AI provider: '{provider}'")),
     }
 }
@@ -1229,9 +1521,13 @@ fn invoke_ai_provider(
     let catalyst_input = build_provider_request(&catalyst_name, model, messages, system);
 
     let invoke_request = json!({
-        "reference": &component_ref,
-        "input": catalyst_input,
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": &component_ref,
+            "input": catalyst_input,
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&invoke_request.to_string());
@@ -1243,10 +1539,11 @@ fn invoke_ai_provider(
         return Err(format!("AI invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let catalyst_result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let catalyst_result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = catalyst_result.get("error") {
@@ -1403,12 +1700,16 @@ fn extract_content(data: &Value, catalyst_name: &str) -> String {
 
 fn supabase_call_once(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": operation,
-            "params": params
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": operation,
+                "params": params
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -1420,10 +1721,11 @@ fn supabase_call_once(operation: &str, params: Value) -> Result<Value, String> {
         return Err(format!("Supabase invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {
@@ -1446,14 +1748,18 @@ fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
 
 fn fetch_user_once(access_token: &str) -> Result<Value, String> {
     let request = json!({
-        "reference": SUPABASE_REF,
-        "input": {
-            "operation": "auth.user",
-            "params": {
-                "access_token": access_token
-            }
-        },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": SUPABASE_REF,
+            "input": {
+                "operation": "auth.user",
+                "params": {
+                    "access_token": access_token
+                }
+            },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -1465,10 +1771,11 @@ fn fetch_user_once(access_token: &str) -> Result<Value, String> {
         return Err(format!("Auth error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     if let Some(err) = result.get("error") {
@@ -1487,14 +1794,18 @@ fn fetch_user(access_token: &str) -> Result<Value, String> {
 
 fn parse_mentions(text: &str, members: &[Value], dons: &[Value]) -> Result<Value, String> {
     let request = json!({
-        "reference": MENTION_PARSER_REF,
-        "input": {
-            "text": text,
-            "members": members,
-            "dons": dons,
-            "max_all_mentions": MAX_ALL_MENTIONS
-        },
-        "type": "reagent"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": MENTION_PARSER_REF,
+            "input": {
+                "text": text,
+                "members": members,
+                "dons": dons,
+                "max_all_mentions": MAX_ALL_MENTIONS
+            },
+            "type": "reagent"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());
@@ -1506,10 +1817,11 @@ fn parse_mentions(text: &str, members: &[Value], dons: &[Value]) -> Result<Value
         return Err(format!("Mention parser invoke error: {err}"));
     }
 
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
+    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
+    let result = match &raw_result {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
+        _ => raw_result,
     };
 
     Ok(result)
@@ -1559,11 +1871,10 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 }
 
 fn insert_typing_indicator(sit_down_id: &str, member_id: &str, member_name: &str, user_id: &str, access_token: &str) {
-    // Single fire-and-forget insert; PK (sit_down_id, member_id) prevents duplicates.
-    // On conflict it fails silently — that's fine, indicator already exists.
+    // Upsert so existing rows get updated instead of throwing a PK violation.
     // Cleanup happens inside insert_ai_message RPC when the AI response is saved.
     let _ = supabase_call_once(
-        "db.insert",
+        "db.upsert",
         json!({
             "table": "typing_indicators",
             "body": {
@@ -1572,6 +1883,7 @@ fn insert_typing_indicator(sit_down_id: &str, member_id: &str, member_name: &str
                 "member_name": member_name,
                 "started_by": user_id
             },
+            "on_conflict": "sit_down_id,member_id",
             "access_token": access_token
         }),
     );

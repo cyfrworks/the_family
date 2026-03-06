@@ -7,7 +7,7 @@
 	# Frontend SPA (static files with client-side routing fallback)
 	handle {
 		root * /srv
-		try_files {path} /index.html
+		try_files {path} {path}.html /index.html
 		file_server
 	}
 }

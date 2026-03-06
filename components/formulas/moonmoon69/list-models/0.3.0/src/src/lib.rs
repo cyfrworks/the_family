@@ -106,9 +106,13 @@ fn invoke_parallel(providers: &[&Provider]) -> Result<String, String> {
 
     for provider in providers {
         let request = json!({
-            "reference": provider.registry_ref,
-            "input": { "operation": "models.list", "params": {} },
-            "type": "catalyst"
+            "tool": "execution",
+            "action": "run",
+            "args": {
+                "reference": provider.registry_ref,
+                "input": { "operation": "models.list", "params": {} },
+                "type": "catalyst"
+            }
         });
 
         let spawn_response_str = invoke::spawn(&request.to_string());
@@ -177,9 +181,14 @@ fn invoke_parallel(providers: &[&Provider]) -> Result<String, String> {
 fn parse_catalyst_output(result: &Value) -> Result<Value, String> {
     let output = result.get("output").cloned().unwrap_or(Value::Null);
 
-    let catalyst_result = match &output {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-        _ => output,
+    // MCP execution.run wraps result — check for inner result field
+    let catalyst_result = if let Some(inner) = output.get("result") {
+        inner.clone()
+    } else {
+        match &output {
+            Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
+            _ => output,
+        }
     };
 
     if let Some(err) = catalyst_result.get("error") {
@@ -195,9 +204,13 @@ fn parse_catalyst_output(result: &Value) -> Result<Value, String> {
 
 fn invoke_models_list(provider: &Provider) -> Result<Value, String> {
     let request = json!({
-        "reference": provider.registry_ref,
-        "input": { "operation": "models.list", "params": {} },
-        "type": "catalyst"
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": provider.registry_ref,
+            "input": { "operation": "models.list", "params": {} },
+            "type": "catalyst"
+        }
     });
 
     let response_str = invoke::call(&request.to_string());

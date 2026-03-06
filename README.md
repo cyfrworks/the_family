@@ -32,13 +32,15 @@
 │  CYFR Server  (Docker, port 4000)                               │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Catalysts (WASM-sandboxed API bridges, from registry)  │    │
+│  │  Catalysts (WASM-sandboxed API bridges)                 │    │
 │  │                                                         │    │
 │  │  moonmoon69.supabase ──► Supabase GoTrue (auth)         │    │
 │  │                       ──► Supabase PostgREST (db + RLS) │    │
 │  │  moonmoon69.claude    ──► Anthropic API                 │    │
 │  │  moonmoon69.openai    ──► OpenAI API                    │    │
 │  │  moonmoon69.gemini    ──► Google Gemini API             │    │
+│  │  moonmoon69.web       ──► Web page fetching             │    │
+│  │  local.files           ──► File storage operations       │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
@@ -51,6 +53,7 @@
 │  │                              messages, AI responses     │    │
 │  │  local.settings-api      ──► profile + password mgmt    │    │
 │  │  local.commission-api    ──► commission contacts         │    │
+│  │  local.agent             ──► AI agent w/ file ops        │    │
 │  │  moonmoon69.list-models  ──► model discovery            │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
@@ -189,6 +192,16 @@ cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["YOUR_PROJECT.supa
 cyfr policy set c:moonmoon69.claude:0.2.0 allowed_domains '["api.anthropic.com"]'
 cyfr policy set c:moonmoon69.openai:0.2.0 allowed_domains '["api.openai.com"]'
 cyfr policy set c:moonmoon69.gemini:0.2.0 allowed_domains '["generativelanguage.googleapis.com"]'
+
+# Set allowed MCP tools for formulas (formulas dispatch via MCP tool calls)
+cyfr policy set f:local.auth-api:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.settings-api:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.commission-api:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.members-api:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.admin-api:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.sit-down:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.agent:0.4.0 allowed_tools '["execution.run", "component.search", "component.inspect", "guide.get", "tools.list"]'
+cyfr policy set f:moonmoon69.list-models:0.3.0 allowed_tools '["execution.run"]'
 ```
 
 </details>
@@ -211,6 +224,14 @@ And these host policies:
 | `moonmoon69.claude` | `api.anthropic.com` |
 | `moonmoon69.openai` | `api.openai.com` |
 | `moonmoon69.gemini` | `generativelanguage.googleapis.com` |
+
+And these formula tool policies (formulas dispatch sub-component calls via MCP tools):
+
+| Component | Allowed tools |
+|-----------|--------------|
+| All API formulas | `execution.run` |
+| `local.agent` | `execution.run`, `component.search`, `component.inspect`, `guide.get`, `tools.list` |
+| `moonmoon69.list-models` | `execution.run` |
 
 ### 3. Open the doors — Development
 
@@ -265,6 +286,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `catalyst:moonmoon69.openai:0.2.0` | Catalyst | Registry | OpenAI API — responses, completions, model listing |
 | `catalyst:moonmoon69.gemini:0.2.0` | Catalyst | Registry | Google Gemini API — generation, model listing |
 | `catalyst:moonmoon69.web:0.2.0` | Catalyst | Registry | General web reader — fetch pages, extract text |
+| `catalyst:local.files:0.1.0` | Catalyst | Local | File storage operations — read, write, list, delete |
 | `formula:moonmoon69.list-models:0.3.0` | Formula | Registry | Aggregates models across all AI provider catalysts |
 | `formula:local.auth-api:0.1.0` | Formula | Local | Sign up, sign in, sign out, token refresh, password reset |
 | `formula:local.admin-api:0.1.0` | Formula | Local | User listing, tier management, model catalog CRUD |
@@ -272,6 +294,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `formula:local.sit-down:0.1.0` | Formula | Local | Consolidated sit-down: CRUD, participants, messages, AI responses |
 | `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
+| `formula:local.agent:0.4.0` | Formula | Local | AI agent with file ops, multi-provider LLM, CYFR-aware context |
 | `reagent:local.mention-parser:0.1.0` | Reagent | Local | Parses @mentions, resolves names, handles @all |
 
 ## Project Structure
@@ -325,12 +348,16 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── vite.config.ts           # Vite + Tailwind + /cyfr proxy
 │   └── package.json
 ├── components/                  # CYFR WASM components
-│   ├── catalysts/               # (pulled from registry via cyfr pull)
+│   ├── catalysts/
+│   │   ├── local/
+│   │   │   └── files/0.1.0/          # File storage operations catalyst
+│   │   └── moonmoon69/               # (pulled from registry via cyfr pull)
 │   ├── reagents/local/
 │   │   └── mention-parser/0.1.0/  # @mention text parsing reagent
 │   └── formulas/
 │       ├── local/
 │       │   ├── admin-api/0.1.0/       # Admin operations + model catalog CRUD
+│       │   ├── agent/0.4.0/           # AI agent w/ file ops + multi-provider LLM
 │       │   ├── auth-api/0.1.0/        # Authentication operations
 │       │   ├── commission-api/0.1.0/  # Commission contact management
 │       │   ├── members-api/0.1.0/     # Member CRUD
@@ -340,7 +367,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │           └── list-models/0.3.0/     # Model listing aggregation (registry)
 ├── wit/                         # WebAssembly Interface Types
 │   ├── catalyst/                # Catalyst WIT (run, http, secrets)
-│   ├── formula/                 # Formula WIT (run, invoke, mcp tools)
+│   ├── formula/                 # Formula WIT (run, invoke)
 │   └── reagent/                 # Reagent WIT
 ├── migrations/
 │   └── 001-migration.sql        # Database schema, RLS policies, triggers, RPC functions
