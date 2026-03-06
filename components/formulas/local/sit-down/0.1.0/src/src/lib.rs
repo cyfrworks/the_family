@@ -1504,8 +1504,8 @@ fn resolve_provider_ref(provider: &str) -> Result<(String, String), String> {
         "claude" => Ok((CLAUDE_REF.to_string(), "claude".to_string())),
         "openai" => Ok((OPENAI_REF.to_string(), "openai".to_string())),
         "gemini" => Ok((GEMINI_REF.to_string(), "gemini".to_string())),
-        "openrouter" => Ok((OPENROUTER_REF.to_string(), "openai".to_string())),
-        "grok" => Ok((GROK_REF.to_string(), "openai".to_string())),
+        "openrouter" => Ok((OPENROUTER_REF.to_string(), "openrouter".to_string())),
+        "grok" => Ok((GROK_REF.to_string(), "grok".to_string())),
         _ => Err(format!("Unsupported AI provider: '{provider}'")),
     }
 }
@@ -1582,7 +1582,10 @@ fn build_provider_request(
                 "system": system,
                 "messages": messages,
                 "max_tokens": 4096,
-                "tools": [{ "type": "web_search_20250305", "name": "web_search" }]
+                "tools": [
+                    { "type": "web_search_20250305", "name": "web_search", "max_uses": 3 },
+                    { "type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5, "citations": { "enabled": true } }
+                ]
             }
         })
     } else if lower.contains("openai") {
@@ -1594,6 +1597,29 @@ fn build_provider_request(
                 "input": messages,
                 "tools": [{ "type": "web_search_preview" }],
                 "max_output_tokens": 4096
+            }
+        })
+    } else if lower.contains("grok") {
+        json!({
+            "operation": "responses.create",
+            "params": {
+                "model": model,
+                "instructions": system,
+                "input": messages,
+                "tools": [{ "type": "web_search" }, { "type": "x_search" }],
+                "max_output_tokens": 4096
+            }
+        })
+    } else if lower.contains("openrouter") {
+        let mut all_messages = vec![json!({"role": "system", "content": system})];
+        all_messages.extend_from_slice(messages);
+        json!({
+            "operation": "chat.completions.create",
+            "params": {
+                "model": model,
+                "messages": all_messages,
+                "max_tokens": 4096,
+                "plugins": [{ "id": "web" }]
             }
         })
     } else if lower.contains("gemini") {
@@ -1664,6 +1690,42 @@ fn extract_content(data: &Value, catalyst_name: &str) -> String {
                 return text;
             }
         }
+        if let Some(text) = data
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .and_then(|msg| msg.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            return text.to_string();
+        }
+    } else if lower.contains("grok") {
+        if let Some(output) = data.get("output").and_then(|v| v.as_array()) {
+            let text: String = output
+                .iter()
+                .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("message"))
+                .filter_map(|item| item.get("content").and_then(|v| v.as_array()))
+                .flatten()
+                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("output_text"))
+                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
+                .collect::<Vec<_>>()
+                .join("");
+            if !text.is_empty() {
+                return text;
+            }
+        }
+        if let Some(text) = data
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .and_then(|msg| msg.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            return text.to_string();
+        }
+    } else if lower.contains("openrouter") {
         if let Some(text) = data
             .get("choices")
             .and_then(|v| v.as_array())
