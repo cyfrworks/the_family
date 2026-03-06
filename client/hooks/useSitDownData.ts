@@ -7,7 +7,7 @@ import { getUserFriendlyError, type FriendlyError } from '../lib/error-messages'
 import type { SitDown, SitDownParticipant, Member, Message, Profile } from '../lib/types';
 import type { RemoteTypingIndicator } from './useMessages';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { notifyMembershipChange } from './useSitDowns';
+import { notifyMembershipChange, setActiveSitDown } from './useSitDowns';
 
 export interface MembersByOwner {
   profile: Profile;
@@ -170,12 +170,14 @@ export function useSitDownData(sitDownId: string | undefined) {
     enabled: false, // triggered manually on scroll-up
   });
 
-  // Set enteredAt and typing indicators when data loads
+  // Set enteredAt, typing indicators, and active sit-down when data loads
   useEffect(() => {
     if (sitDownId && enterQuery.data) {
       setEnteredAt(new Date().toISOString());
       setTypingIndicators(getCachedIndicators(sitDownId));
+      setActiveSitDown(sitDownId);
     }
+    return () => { setActiveSitDown(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
 

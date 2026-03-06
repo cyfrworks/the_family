@@ -12,10 +12,12 @@ services:
       - .env
 
   # ════════════════════════════════════════════
-  # Web — Builds frontend on every `docker compose up`
+  # Web + Caddy — Production (profile: caddy)
+  # Enable with COMPOSE_PROFILES=caddy in .env
   # ════════════════════════════════════════════
 
   web:
+    profiles: [caddy]
     image: node:20-alpine
     working_dir: /app
     volumes:
@@ -28,11 +30,10 @@ services:
       EXPO_PUBLIC_CYFR_URL: /mcp
     command: sh -c "cp -r /src/. /app/ && npm ci && env | grep ^EXPO_PUBLIC_ > /app/.env && npx expo export --platform web --output-dir /tmp/dist && rm -rf /app/dist/* && cp -r /tmp/dist/. /app/dist/"
 
-  # ════════════════════════════════════════════
   # Caddy — Reverse Proxy + Web Frontend
-  # ════════════════════════════════════════════
 
   caddy:
+    profiles: [caddy]
     image: caddy:2-alpine
     ports:
       - "80:80"

@@ -372,11 +372,13 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 After completing the dev setup above, production only requires a few extra steps:
 
-1. Set `SITE_DOMAIN=yourdomain.com` in `.env`
+1. Set in `.env`:
+   - `COMPOSE_PROFILES=caddy`
+   - `SITE_DOMAIN=yourdomain.com`
 2. Point your DNS A record to your server's IP
 3. `cyfr up` — starts CYFR, builds the web frontend, and launches Caddy (auto-provisions HTTPS via Let's Encrypt)
 
-The web frontend rebuilds automatically on every `cyfr up` — no extra build commands needed.
+The web frontend rebuilds automatically on every `cyfr up` — no extra build commands needed. In local dev, omit `COMPOSE_PROFILES` and only CYFR starts.
 
 | Port | Service | Purpose |
 |------|---------|---------|

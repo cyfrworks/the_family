@@ -10,6 +10,10 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 
+// Track which sit-down is currently being viewed (suppress unread increments)
+let activeSitDownId: string | null = null;
+export function setActiveSitDown(id: string | null) { activeSitDownId = id; }
+
 // ---------------------------------------------------------------------------
 // Broadcast-based membership notifications (bypasses RLS)
 // ---------------------------------------------------------------------------
@@ -83,6 +87,7 @@ export function useSitDowns() {
         (payload) => {
           const msg = payload.new as { sit_down_id: string; sender_user_id: string | null };
           if (msg.sender_user_id === user.id) return;
+          if (msg.sit_down_id === activeSitDownId) return;
           queryClient.setQueryData<SitDown[]>(['sitDowns'], (old) =>
             old?.map((sd) =>
               sd.id === msg.sit_down_id
