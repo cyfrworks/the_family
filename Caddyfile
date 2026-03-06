@@ -1,6 +1,7 @@
 {$SITE_DOMAIN:localhost} {
 	# CYFR Emissary (MCP/API)
 	handle /mcp* {
+		request_header -Origin
 		reverse_proxy cyfr:4000
 	}
 
