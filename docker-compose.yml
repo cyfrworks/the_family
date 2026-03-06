@@ -12,29 +12,47 @@ services:
       - .env
 
   # ════════════════════════════════════════════
+  # Web — Builds frontend on every `docker compose up`
+  # ════════════════════════════════════════════
+
+  web:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./client:/src:ro
+      - web-dist:/app/dist
+      - web-node-modules:/app/node_modules
+    environment:
+      EXPO_PUBLIC_CYFR_URL: /mcp
+      EXPO_PUBLIC_CYFR_PUBLIC_KEY: ${EXPO_PUBLIC_CYFR_PUBLIC_KEY}
+      EXPO_PUBLIC_SUPABASE_URL: ${EXPO_PUBLIC_SUPABASE_URL}
+      EXPO_PUBLIC_SUPABASE_KEY: ${EXPO_PUBLIC_SUPABASE_KEY}
+    command: sh -c "cp -r /src/. /app/ && npm ci && npx expo export --platform web"
+
+  # ════════════════════════════════════════════
   # Caddy — Reverse Proxy + Web Frontend
   # ════════════════════════════════════════════
 
   caddy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
-      args:
-        - EXPO_PUBLIC_CYFR_URL=/mcp
-        - EXPO_PUBLIC_CYFR_PUBLIC_KEY=${EXPO_PUBLIC_CYFR_PUBLIC_KEY}
-        - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
-        - EXPO_PUBLIC_SUPABASE_KEY=${EXPO_PUBLIC_SUPABASE_KEY}
+    image: caddy:2-alpine
     ports:
       - "80:80"
       - "443:443"
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
     volumes:
+      - web-dist:/srv:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - cyfr
+      cyfr:
+        condition: service_started
+      web:
+        condition: service_completed_successfully
 
 volumes:
+  web-dist:
+  web-node-modules:
   caddy-data:
   caddy-config:
