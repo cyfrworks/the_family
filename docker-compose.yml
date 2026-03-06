@@ -12,12 +12,10 @@ services:
       - .env
 
   # ════════════════════════════════════════════
-  # Caddy — Production Reverse Proxy (profile: caddy)
-  # Activate with COMPOSE_PROFILES=caddy in .env
+  # Caddy — Reverse Proxy + Web Frontend
   # ════════════════════════════════════════════
 
   caddy:
-    profiles: [caddy]
     build:
       context: .
       dockerfile: Dockerfile.caddy
