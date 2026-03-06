@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { supabase, setRealtimeAuth } from './realtime';
+import { getSupabase, setRealtimeAuth } from './realtime';
 
 let _accessToken: string | null = null;
 let _refreshToken: string | null = null;
@@ -67,7 +67,7 @@ export const auth = {
     if (password.length < 8) throw new Error('Password must be at least 8 characters.');
     if (!displayName) throw new Error('Display name is required.');
 
-    const { data: result, error } = await supabase.auth.signUp({
+    const { data: result, error } = await getSupabase().auth.signUp({
       email,
       password,
       options: { data: { display_name: displayName } },
@@ -92,7 +92,7 @@ export const auth = {
   },
 
   async signIn(email: string, password: string): Promise<AuthTokens> {
-    const { data: result, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: result, error } = await getSupabase().auth.signInWithPassword({ email, password });
 
     if (error) throw new Error('Invalid credentials');
 
@@ -114,9 +114,9 @@ export const auth = {
   async signOut(): Promise<void> {
     try {
       if (_accessToken && _refreshToken) {
-        await supabase.auth.setSession({ access_token: _accessToken, refresh_token: _refreshToken });
+        await getSupabase().auth.setSession({ access_token: _accessToken, refresh_token: _refreshToken });
       }
-      await supabase.auth.signOut();
+      await getSupabase().auth.signOut();
     } finally {
       setAccessToken(null);
       setRefreshToken(null);
@@ -126,7 +126,7 @@ export const auth = {
   async getUser(): Promise<AuthTokens['user'] | null> {
     if (!_accessToken) return null;
     try {
-      const { data, error } = await supabase.auth.getUser(_accessToken);
+      const { data, error } = await getSupabase().auth.getUser(_accessToken);
       if (error || !data.user) return null;
       return {
         id: data.user.id,
@@ -139,7 +139,7 @@ export const auth = {
   },
 
   async resetPassword(email: string): Promise<void> {
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    const { error } = await getSupabase().auth.resetPasswordForEmail(email);
     if (error) throw new Error(error.message);
   },
 
@@ -147,8 +147,8 @@ export const auth = {
     const refreshToken = getRefreshToken();
     if (!refreshToken || !_accessToken) return null;
     try {
-      await supabase.auth.setSession({ access_token: _accessToken, refresh_token: refreshToken });
-      const { data, error } = await supabase.auth.refreshSession();
+      await getSupabase().auth.setSession({ access_token: _accessToken, refresh_token: refreshToken });
+      const { data, error } = await getSupabase().auth.refreshSession();
 
       if (error || !data.session) {
         setAccessToken(null);

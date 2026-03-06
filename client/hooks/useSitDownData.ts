@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import { supabase } from '../lib/realtime';
+import { getSupabase } from '../lib/realtime';
 import { getUserFriendlyError, type FriendlyError } from '../lib/error-messages';
 import type { SitDown, SitDownParticipant, Member, Message, Profile } from '../lib/types';
 import type { RemoteTypingIndicator } from './useMessages';
@@ -226,7 +226,7 @@ export function useSitDownData(sitDownId: string | undefined) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      getSupabase().removeChannel(channel);
     };
   }, [sitDownId, queryClient]);
 
@@ -289,7 +289,7 @@ export function useSitDownData(sitDownId: string | undefined) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      getSupabase().removeChannel(channel);
     };
   }, [sitDownId, queryClient]);
 

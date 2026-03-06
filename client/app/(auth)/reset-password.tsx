@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { supabase } from '../../lib/realtime';
+import { getSupabase } from '../../lib/realtime';
 
 export default function ResetPasswordScreen() {
   const [newPassword, setNewPassword] = useState('');
@@ -43,12 +43,12 @@ export default function ResetPasswordScreen() {
         return;
       }
 
-      await supabase.auth.setSession({
+      await getSupabase().auth.setSession({
         access_token: recoveryToken,
         refresh_token: refreshToken,
       });
 
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      const { error: updateError } = await getSupabase().auth.updateUser({ password: newPassword });
       if (updateError) throw new Error(updateError.message);
 
       setSuccess(true);

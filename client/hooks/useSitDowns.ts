@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import { supabase } from '../lib/realtime';
+import { getSupabase } from '../lib/realtime';
 import type { SitDown } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 import type { QueryClient } from '@tanstack/react-query';
@@ -18,7 +18,7 @@ let membershipUserId: string | null = null;
 
 function ensureMembershipChannel(userId: string, queryClient: QueryClient) {
   if (membershipChannel && membershipUserId === userId) return;
-  if (membershipChannel) supabase.removeChannel(membershipChannel);
+  if (membershipChannel) getSupabase().removeChannel(membershipChannel);
 
   membershipUserId = userId;
   membershipChannel = supabase
@@ -95,7 +95,7 @@ export function useSitDowns() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      getSupabase().removeChannel(channel);
     };
   }, [user, queryClient]);
 

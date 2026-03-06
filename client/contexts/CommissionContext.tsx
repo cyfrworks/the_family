@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, type ReactNode } fro
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import { supabase } from '../lib/realtime';
+import { getSupabase } from '../lib/realtime';
 import { useAuth } from './AuthContext';
 import type { CommissionContact, SitDown } from '../lib/types';
 
@@ -77,7 +77,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { getSupabase().removeChannel(channel); };
   }, [user, refetch]);
 
   // Realtime: local unread increment for commission sit-downs on new messages
@@ -105,7 +105,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      getSupabase().removeChannel(channel);
     };
   }, [user, queryClient]);
 

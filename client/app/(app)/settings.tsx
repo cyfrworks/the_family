@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { cyfrCall } from '../../lib/cyfr';
 import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../../lib/supabase';
-import { supabase } from '../../lib/realtime';
+import { getSupabase } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
 
@@ -72,22 +72,22 @@ export default function SettingsScreen() {
       if (!accessToken) throw new Error('Not authenticated');
 
       // Verify current password
-      const { error: verifyError } = await supabase.auth.signInWithPassword({
+      const { error: verifyError } = await getSupabase().auth.signInWithPassword({
         email: user.email,
         password: currentPassword,
       });
       if (verifyError) throw new Error('Current password is incorrect.');
 
       // Set session and update password
-      await supabase.auth.setSession({
+      await getSupabase().auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken || '',
       });
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      const { error: updateError } = await getSupabase().auth.updateUser({ password: newPassword });
       if (updateError) throw new Error(updateError.message);
 
       // Re-sign-in for fresh tokens
-      const { data: freshSession, error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: freshSession, error: signInError } = await getSupabase().auth.signInWithPassword({
         email: user.email,
         password: newPassword,
       });
