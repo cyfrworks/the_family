@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/banner.png" alt="The Family" width="600" />
+  <img src="client/assets/images/banner.png" alt="The Family" width="600" />
 </p>
 
 <h1 align="center">The Family</h1>
@@ -23,7 +23,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  React / Vite / TypeScript Frontend                             │
+│  Expo / React Native (Web) / TypeScript Client                  │
 │  (all requests go to /cyfr, proxied to localhost:4000/mcp)      │
 └────────────────────────────┬────────────────────────────────────┘
                              │  JSON-RPC 2.0
@@ -126,7 +126,7 @@ UPDATE public.profiles SET tier = 'godfather' WHERE id = 'YOUR_USER_UUID';
 Then configure auth redirects:
 
 - Go to **Authentication** → **URL Configuration**
-- Set **Site URL** to `http://localhost:5173` (or your production URL)
+- Set **Site URL** to `http://localhost:8081` (or your production URL)
 
 ### 2. Open for business — CYFR Server
 
@@ -134,7 +134,7 @@ Then configure auth redirects:
 # Clone and configure
 git clone <repo-url> && cd the_family
 cp .env.example .env
-# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_KEY from your Supabase project
+# Fill in EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_KEY from your Supabase project
 
 # Initialize CYFR
 cyfr init                    # generates CYFR_SECRET_KEY_BASE → writes to .env
@@ -147,8 +147,8 @@ cyfr login                   # GitHub OAuth device flow — opens browser
 
 # Create a frontend API key
 cyfr key create --name "the-family" --type public
-# Copy the printed cyfr_pk_... key to .env as VITE_CYFR_PUBLIC_KEY
-# (Vite reads this at dev/build time — no CYFR restart needed)
+# Copy the printed cyfr_pk_... key to .env as EXPO_PUBLIC_CYFR_PUBLIC_KEY
+# (Expo reads this at dev/build time — no CYFR restart needed)
 
 # Pull registry components
 cyfr pull catalyst:moonmoon69.supabase:0.2.0
@@ -236,9 +236,9 @@ And these formula tool policies (formulas dispatch sub-component calls via MCP t
 ### 3. Open the doors — Development
 
 ```bash
-cd frontend
+cd client
 npm install
-npm run dev    # Vite dev server on port 5173, proxies /cyfr → CYFR
+npx expo start --web    # Expo dev server on port 8081, proxies /cyfr → CYFR
 ```
 
 ## Running the Family
@@ -301,51 +301,40 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 ```
 .
-├── frontend/                    # React/Vite/TypeScript app
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── admin/           # ModelCatalogManager, AddModelModal, UserTierManager
-│   │   │   ├── auth/            # AuthGuard, LoginForm, SignupForm
-│   │   │   ├── chat/            # ChatView, MessageBubble, MessageComposer,
-│   │   │   │                    # MessageContent, MentionPopover,
-│   │   │   │                    # TypewriterText, TypingIndicator
-│   │   │   ├── commission/      # CreateCommissionSitDownModal,
-│   │   │   │                    # InviteToCommissionModal, PendingInvitesBanner
-│   │   │   ├── layout/          # AppShell, Sidebar
-│   │   │   ├── members/         # MemberCard, MemberEditor, MemberTemplateSelector
-│   │   │   └── sitdown/         # CreateSitdownModal, MemberList
-│   │   ├── config/
-│   │   │   └── constants.ts     # Member templates, tier labels, limits
-│   │   ├── contexts/
-│   │   │   ├── AuthContext.tsx   # Auth state, sign-up/sign-in, profile, tier
-│   │   │   └── CommissionContext.tsx  # Commission contacts + polling
-│   │   ├── hooks/
-│   │   │   ├── useAIResponse.ts      # AI invocation, rate limiting, typing indicators
-│   │   │   ├── useCommission.ts      # Invite/accept commission contacts
-│   │   │   ├── useCommissionSitDowns.ts
-│   │   │   ├── useMention.ts         # @mention autocomplete state
-│   │   │   ├── useMessages.ts        # Message fetching (3s poll) + sending
-│   │   │   ├── useModelCatalog.ts     # Catalog data for regular users
-│   │   │   ├── useModels.ts          # Discover available LLM models (admin)
-│   │   │   ├── useAdminUsers.ts      # Admin user/tier management
-│   │   │   ├── useMembers.ts         # Member CRUD
-│   │   │   ├── useSitDown.ts         # Single sit-down + members
-│   │   │   └── useSitDowns.ts        # Sit-down list
-│   │   ├── lib/
-│   │   │   ├── cyfr.ts          # CYFR MCP client (JSON-RPC 2.0)
-│   │   │   ├── mention-parser.ts # @mention text parsing
-│   │   │   ├── supabase.ts      # Supabase operations via CYFR catalyst
-│   │   │   └── types.ts         # TypeScript types
-│   │   ├── pages/               # Dashboard, Login, Signup, Members, Settings, Sitdown, Admin
-│   │   ├── styles/
-│   │   │   └── globals.css      # Tailwind + dark mafia theme
-│   │   ├── App.tsx              # Router setup
-│   │   └── main.tsx             # Entry point
-│   ├── public/
-│   │   ├── banner.png            # Wide banner image
-│   │   └── logo.png             # Project logo
-│   ├── index.html
-│   ├── vite.config.ts           # Vite + Tailwind + /cyfr proxy
+├── client/                      # Expo / React Native (Web) app
+│   ├── app/                     # Expo Router file-based routing
+│   │   ├── (app)/               # Authenticated routes
+│   │   │   ├── _layout.tsx      # App shell + sidebar
+│   │   │   ├── index.tsx        # Dashboard
+│   │   │   ├── admin.tsx        # Admin page
+│   │   │   ├── members.tsx      # Members page
+│   │   │   ├── settings.tsx     # Settings page
+│   │   │   └── sitdown/         # Sit-down routes
+│   │   ├── (auth)/              # Auth routes (login, signup, reset-password)
+│   │   └── _layout.tsx          # Root layout + providers
+│   ├── components/
+│   │   ├── admin/               # ModelCatalogManager, AddModelModal, UserTierManager
+│   │   ├── chat/                # ChatView, MessageBubble, MessageComposer,
+│   │   │                        # MessageContent, MentionPopover, TypingIndicator
+│   │   ├── commission/          # CreateCommissionSitDownModal,
+│   │   │                        # InviteToCommissionModal, PendingInvitesBanner
+│   │   ├── layout/              # Sidebar
+│   │   ├── members/             # MemberCard, MemberEditor, MemberTemplateSelector
+│   │   └── sitdown/             # CreateSitdownModal, MemberList
+│   ├── config/
+│   │   └── constants.ts         # Member templates, tier labels, limits
+│   ├── contexts/
+│   │   ├── AuthContext.tsx       # Auth state, sign-up/sign-in, profile, tier
+│   │   └── CommissionContext.tsx # Commission contacts + realtime
+│   ├── hooks/                   # React hooks (useMembers, useSitDowns, useMention, etc.)
+│   ├── lib/
+│   │   ├── cyfr.ts              # CYFR MCP client (JSON-RPC 2.0)
+│   │   ├── realtime.ts          # Supabase Realtime via CYFR
+│   │   ├── supabase.ts          # Supabase operations via CYFR catalyst
+│   │   └── types.ts             # TypeScript types
+│   ├── assets/                  # Fonts, images (banner, logo, icons)
+│   ├── global.css               # Tailwind + dark mafia theme
+│   ├── metro.config.js          # Metro bundler + /cyfr dev proxy
 │   └── package.json
 ├── components/                  # CYFR WASM components
 │   ├── catalysts/
@@ -371,8 +360,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   └── reagent/                 # Reagent WIT
 ├── migrations/
 │   └── 001-migration.sql        # Database schema, RLS policies, triggers, RPC functions
-├── docker-compose.yml           # CYFR + Caddy (profile)
-├── Dockerfile.caddy             # Multi-stage: build frontend + serve with Caddy
+├── docker-compose.yml           # CYFR + web build + Caddy
 ├── Caddyfile                    # Caddy reverse proxy config (production)
 ├── cyfr.yaml                    # CYFR project config
 ├── .env.example                 # Environment variable template
@@ -384,13 +372,11 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 After completing the dev setup above, production only requires a few extra steps:
 
-1. Set in `.env`:
-   - `COMPOSE_PROFILES=caddy`
-   - `SITE_DOMAIN=yourdomain.com`
+1. Set `SITE_DOMAIN=yourdomain.com` in `.env`
 2. Point your DNS A record to your server's IP
-3. `docker compose build caddy` — multi-stage build: compiles frontend, bundles into Caddy image
-4. `cyfr up` — now starts both CYFR + Caddy (Caddy auto-provisions HTTPS via Let's Encrypt)
-5. No `npm run dev` needed — Caddy serves the frontend
+3. `cyfr up` — starts CYFR, builds the web frontend, and launches Caddy (auto-provisions HTTPS via Let's Encrypt)
+
+The web frontend rebuilds automatically on every `cyfr up` — no extra build commands needed.
 
 | Port | Service | Purpose |
 |------|---------|---------|
@@ -401,7 +387,7 @@ After completing the dev setup above, production only requires a few extra steps
 
 **Watch your back:**
 
-- **Development** — don't use the Caddy profile locally. Use `npm run dev` for Vite hot reloading
+- **Development** — use `cd client && npx expo start --web` for hot reloading (port 8081)
 - **Prism** — not exposed publicly. Access it via SSH tunnel:
   ```bash
   ssh -L 4001:localhost:4001 user@your-server
@@ -410,24 +396,22 @@ After completing the dev setup above, production only requires a few extra steps
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite 7, Tailwind CSS v4
+- **Client**: Expo, React Native (Web), TypeScript, Expo Router, NativeWind (Tailwind CSS)
 - **Backend**: CYFR (single MCP endpoint, WASM-sandboxed components)
 - **Database**: Supabase PostgreSQL with Row Level Security
 - **Auth**: Supabase GoTrue (via CYFR Supabase catalyst)
 - **AI Providers**: Claude, OpenAI, Gemini (each via dedicated CYFR catalyst)
-- **State**: Zustand, Zod for validation
-- **UI**: Lucide icons, Sonner toasts, react-markdown, Playfair Display + Inter fonts
+- **State**: TanStack Query v5, Zod for validation
+- **UI**: Lucide icons, react-markdown, Playfair Display + Inter fonts
 
 ## Scripts
 
-Run from the `frontend/` directory:
+Run from the `client/` directory:
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server (port 5173) |
-| `npm run build` | Type-check and build for production |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run ESLint |
+| `npx expo start --web` | Start dev server (port 8081) |
+| `npx expo export --platform web` | Build for production |
 
 ## Learn More
 
