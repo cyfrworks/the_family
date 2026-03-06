@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../lib/supabase';
+import { RunYourFamilyButton } from '../../components/common/RunYourFamilyButton';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -177,6 +178,10 @@ export default function LoginScreen() {
                   </Link>
                 </View>
               </View>
+            </View>
+
+            <View className="mt-6 items-center">
+              <RunYourFamilyButton />
             </View>
           </View>
         </ScrollView>

@@ -12,30 +12,31 @@ import {
 } from 'react-native';
 import { X, ChevronDown, AlertTriangle } from 'lucide-react-native';
 import type { Provider, Member } from '../../lib/types';
-import { PROVIDER_LABELS } from '../../config/constants';
+import { PROVIDER_LABELS, MEMBER_TEMPLATES } from '../../config/constants';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { Dropdown } from '../ui/Dropdown';
 
 interface MemberEditorProps {
   visible: boolean;
   member: Member | null;
-  prefill?: { name: string; system_prompt: string };
   onSave: (data: { name: string; catalog_model_id: string; system_prompt: string }) => Promise<void>;
   onClose: () => void;
 }
 
-export function MemberEditor({ visible, member, prefill, onSave, onClose }: MemberEditorProps) {
+export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorProps) {
   const { modelsByProvider, availableProviders, loading: catalogLoading, error: catalogError, refetch: refetchCatalog } = useModelCatalog();
 
   // Keep track of whether we're editing so the title doesn't flash during close animation
   const isEditing = useRef(false);
   if (visible) isEditing.current = !!member;
 
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
   const initialProvider = member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude';
-  const [name, setName] = useState(member?.name ?? prefill?.name ?? '');
+  const [name, setName] = useState(member?.name ?? '');
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [catalogModelId, setCatalogModelId] = useState(member?.catalog_model_id ?? '');
-  const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? prefill?.system_prompt ?? '');
+  const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? '');
   const [saving, setSaving] = useState(false);
 
   const [showProviderPicker, setShowProviderPicker] = useState(false);
@@ -58,10 +59,11 @@ export function MemberEditor({ visible, member, prefill, onSave, onClose }: Memb
   useEffect(() => {
     if (visible && !prevVisible.current) {
       refetchCatalog();
-      setName(member?.name ?? prefill?.name ?? '');
+      setShowTemplatePicker(false);
+      setName(member?.name ?? '');
       setProvider(member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude');
       setCatalogModelId(member?.catalog_model_id ?? '');
-      setSystemPrompt(member?.system_prompt ?? prefill?.system_prompt ?? '');
+      setSystemPrompt(member?.system_prompt ?? '');
     }
     prevVisible.current = visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,12 +112,13 @@ export function MemberEditor({ visible, member, prefill, onSave, onClose }: Memb
             onPress={() => {
               setShowProviderPicker(false);
               setShowModelPicker(false);
+              setShowTemplatePicker(false);
             }}
           >
             {/* Header */}
             <View className="flex-row items-center justify-between border-b border-stone-800 px-5 py-4">
               <Text className="font-serif text-lg font-bold text-stone-100">
-                {isEditing.current ? 'Edit Member' : 'Create Member'}
+                {isEditing.current ? 'Reassign Member' : 'Recruit Member'}
               </Text>
               <Pressable onPress={onClose} className="p-1">
                 <X size={20} color="#a8a29e" />
@@ -129,6 +132,48 @@ export function MemberEditor({ visible, member, prefill, onSave, onClose }: Memb
                   <View className="flex-row items-center gap-1.5">
                     <AlertTriangle size={12} color="#d97706" />
                     <Text className="text-xs text-amber-500">Model removed — pick a new one</Text>
+                  </View>
+                )}
+
+                {/* Template (create only) */}
+                {!isEditing.current && (
+                  <View>
+                    <Text className="mb-1 text-sm font-medium text-stone-300">Template</Text>
+                    <Dropdown
+                      open={showTemplatePicker}
+                      onClose={() => setShowTemplatePicker(false)}
+                      trigger={
+                        <Pressable
+                          onPress={() => {
+                            setShowProviderPicker(false);
+                            setShowModelPicker(false);
+                            setShowTemplatePicker(!showTemplatePicker);
+                          }}
+                          className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                        >
+                          <Text className="text-sm text-stone-400">Pick a persona to prefill...</Text>
+                          <ChevronDown size={16} color="#a8a29e" />
+                        </Pressable>
+                      }
+                    >
+                      {MEMBER_TEMPLATES.map((t) => (
+                        <Pressable
+                          key={t.slug}
+                          onPress={() => {
+                            setName(t.name);
+                            setSystemPrompt(t.system_prompt);
+                            setShowTemplatePicker(false);
+                          }}
+                          className="flex-row items-center gap-2.5 px-3 py-2.5"
+                        >
+                          <Text className="text-base">{t.avatar_emoji}</Text>
+                          <View className="flex-1">
+                            <Text className="text-sm text-stone-100">{t.name}</Text>
+                            <Text className="text-xs text-stone-500" numberOfLines={1}>{t.description}</Text>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </Dropdown>
                   </View>
                 )}
 
@@ -259,7 +304,7 @@ export function MemberEditor({ visible, member, prefill, onSave, onClose }: Memb
                       <ActivityIndicator size="small" color="#0c0a09" />
                     ) : (
                       <Text className="text-sm font-semibold text-stone-950">
-                        {isEditing.current ? 'Update' : 'Create'}
+                        {isEditing.current ? 'Reassign' : 'Recruit'}
                       </Text>
                     )}
                   </Pressable>

@@ -64,13 +64,13 @@ export function MemberCard({ member, onEdit, onDelete, compact }: MemberCardProp
       {(onEdit || onDelete) && (
         <View className="flex-row items-center gap-1">
           {onEdit && (
-            <Pressable onPress={onEdit} className="rounded-md p-1.5">
-              <Pencil size={14} color="#78716c" />
+            <Pressable onPress={onEdit} hitSlop={8} className="rounded-md p-2">
+              <Pencil size={16} color="#78716c" />
             </Pressable>
           )}
           {onDelete && (
-            <Pressable onPress={onDelete} className="rounded-md p-1.5">
-              <Trash2 size={14} color="#78716c" />
+            <Pressable onPress={onDelete} hitSlop={8} className="rounded-md p-2">
+              <Trash2 size={16} color="#78716c" />
             </Pressable>
           )}
         </View>

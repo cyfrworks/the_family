@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import { RunYourFamilyButton } from '../../components/common/RunYourFamilyButton';
 
 export default function SignupScreen() {
   const { signUp } = useAuth();
@@ -107,6 +108,10 @@ export default function SignupScreen() {
                   </Link>
                 </View>
               </View>
+            </View>
+
+            <View className="mt-6 items-center">
+              <RunYourFamilyButton />
             </View>
           </View>
         </ScrollView>

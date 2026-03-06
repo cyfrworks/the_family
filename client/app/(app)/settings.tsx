@@ -9,17 +9,26 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
+import { LogOut } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useResponsive } from '../../hooks/useResponsive';
+import { useRealtimeStatus } from '../../hooks/useRealtimeStatus';
 import { cyfrCall } from '../../lib/cyfr';
 import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../../lib/supabase';
 import { getSupabase } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
+import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
+import { RunYourFamilyButton } from '../../components/common/RunYourFamilyButton';
 
 const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
 
 export default function SettingsScreen() {
-  const { profile, user } = useAuth();
+  const router = useRouter();
+  const { profile, user, tier, signOut } = useAuth();
+  const { isDesktop } = useResponsive();
+  const realtimeConnected = useRealtimeStatus();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
   const [saving, setSaving] = useState(false);
 
@@ -207,6 +216,60 @@ export default function SettingsScreen() {
                 )}
               </Pressable>
             </View>
+
+            {!isDesktop && (
+              <View className="mt-6 items-center">
+                <RunYourFamilyButton />
+              </View>
+            )}
+
+            {!isDesktop && (
+              <View className="mt-3 rounded-xl border border-stone-800 bg-stone-900 p-4">
+                <View className="flex-row items-center gap-3">
+                  <View className="h-12 w-12 items-center justify-center rounded-full bg-gold-600">
+                    <Text className="text-lg font-bold text-stone-950">
+                      {profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-base font-semibold text-stone-200">
+                      {profile?.display_name ?? 'Don'}
+                    </Text>
+                    <View className="mt-1 flex-row items-center gap-2">
+                      <View className={`rounded px-1.5 py-0.5 ${TIER_COLORS[tier]}`}>
+                        <Text className={`text-[10px] font-semibold ${
+                          tier === 'associate' ? 'text-stone-300' : 'text-stone-950'
+                        }`}>
+                          {TIER_LABELS[tier]}
+                        </Text>
+                      </View>
+                      <View className={`flex-row items-center gap-1 rounded px-1.5 py-0.5 ${
+                        realtimeConnected ? 'bg-emerald-900/50' : 'bg-red-900/50'
+                      }`}>
+                        <View className={`h-1.5 w-1.5 rounded-full ${
+                          realtimeConnected ? 'bg-emerald-400' : 'bg-red-400'
+                        }`} />
+                        <Text className={`text-[10px] font-semibold ${
+                          realtimeConnected ? 'text-emerald-400' : 'text-red-400'
+                        }`}>
+                          {realtimeConnected ? 'Wired in' : 'Dark'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    signOut();
+                    router.replace('/(auth)/login');
+                  }}
+                  className="mt-3 flex-row items-center justify-center gap-2 rounded-lg border border-stone-700 px-3 py-2"
+                >
+                  <LogOut size={14} color="#a8a29e" />
+                  <Text className="text-sm text-stone-400">Sign Out</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

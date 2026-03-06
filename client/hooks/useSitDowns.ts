@@ -13,6 +13,7 @@ const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 // Track which sit-down is currently being viewed (suppress unread increments)
 let activeSitDownId: string | null = null;
 export function setActiveSitDown(id: string | null) { activeSitDownId = id; }
+export function getActiveSitDown() { return activeSitDownId; }
 
 // ---------------------------------------------------------------------------
 // Broadcast-based membership notifications (bypasses RLS)

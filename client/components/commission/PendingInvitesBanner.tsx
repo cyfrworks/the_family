@@ -1,6 +1,7 @@
-import { View, Text, Pressable, Alert } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Check, X } from 'lucide-react-native';
 import { showToast } from '../../lib/toast';
+import { confirmAlert } from '../../lib/alert';
 import type { CommissionContact } from '../../lib/types';
 
 interface PendingInvitesBannerProps {
@@ -12,27 +13,19 @@ interface PendingInvitesBannerProps {
 export function PendingInvitesBanner({ invites, onAccept, onDecline }: PendingInvitesBannerProps) {
   if (invites.length === 0) return null;
 
-  function handleDecline(invite: CommissionContact) {
+  async function handleDecline(invite: CommissionContact) {
     const inviterName = invite.profile?.display_name ?? 'this Don';
-    Alert.alert(
+    const confirmed = await confirmAlert(
       'Decline Invitation',
       `Are you sure you want to decline the invitation from ${inviterName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Decline',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await onDecline(invite.id);
-              showToast({ type: 'success', text1: 'Invitation declined.' });
-            } catch {
-              showToast({ type: 'error', text1: "Couldn't decline the invite." });
-            }
-          },
-        },
-      ],
     );
+    if (!confirmed) return;
+    try {
+      await onDecline(invite.id);
+      showToast({ type: 'success', text1: 'Invitation declined.' });
+    } catch {
+      showToast({ type: 'error', text1: "Couldn't decline the invite." });
+    }
   }
 
   return (

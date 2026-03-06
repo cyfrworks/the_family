@@ -116,11 +116,21 @@ export function useSitDownData(sitDownId: string | undefined) {
       const res = result as Record<string, unknown> | null;
       if (res?.error) throw new Error((res.error as Record<string, string>).message);
 
+      // Preserve the latest last_read_at: realtime updates may have advanced it
+      // beyond what the server returns (server may return the pre-update value).
+      const serverLastRead = (res?.last_read_at as string) ?? null;
+      const cachedData = queryClient.getQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId]);
+      const cachedLastRead = cachedData?.last_read_at ?? null;
+      let lastReadAt = serverLastRead;
+      if (cachedLastRead && serverLastRead && cachedLastRead > serverLastRead) {
+        lastReadAt = cachedLastRead;
+      }
+
       return {
         sit_down: (res?.sit_down as SitDown) ?? null,
         participants: (res?.participants as SitDownParticipant[]) ?? [],
         commission_members: (res?.commission_members as Member[]) ?? [],
-        last_read_at: (res?.last_read_at as string) ?? null,
+        last_read_at: lastReadAt,
         is_commission: (res?.is_commission as boolean) ?? false,
         messages: (res?.messages as Message[]) ?? [],
         has_more_messages: (res?.has_more_messages as boolean) ?? false,
@@ -170,14 +180,30 @@ export function useSitDownData(sitDownId: string | undefined) {
     enabled: false, // triggered manually on scroll-up
   });
 
-  // Set enteredAt, typing indicators, and active sit-down when data loads
+  // Set active sit-down immediately to suppress unread increments (before enter resolves)
+  useEffect(() => {
+    if (sitDownId) {
+      setActiveSitDown(sitDownId);
+    }
+    return () => {
+      setActiveSitDown(null);
+      // Update cached last_read_at so re-entry doesn't show a stale unread divider
+      if (sitDownId) {
+        queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
+          if (!old) return old;
+          return { ...old, last_read_at: new Date().toISOString() };
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sitDownId]);
+
+  // Set enteredAt and typing indicators when data loads
   useEffect(() => {
     if (sitDownId && enterQuery.data) {
       setEnteredAt(new Date().toISOString());
       setTypingIndicators(getCachedIndicators(sitDownId));
-      setActiveSitDown(sitDownId);
     }
-    return () => { setActiveSitDown(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
 
@@ -187,6 +213,16 @@ export function useSitDownData(sitDownId: string | undefined) {
       queryClient.setQueryData<SitDown[]>(['sitDowns'], (old) =>
         old?.map((sd) => (sd.id === sitDownId ? { ...sd, unread_count: 0 } : sd)),
       );
+      // Also reset commission sitdown unread
+      queryClient.setQueryData<{ contacts: unknown[]; pendingInvites: unknown[]; sentInvites: unknown[]; commissionSitDowns: SitDown[] }>(['commission', 'state'], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          commissionSitDowns: old.commissionSitDowns.map((sd) =>
+            sd.id === sitDownId ? { ...sd, unread_count: 0 } : sd,
+          ),
+        };
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
@@ -221,7 +257,8 @@ export function useSitDownData(sitDownId: string | undefined) {
             if (!old) return old;
             // Deduplicate
             if (old.messages.some((m) => m.id === newMsg.id)) return old;
-            return { ...old, messages: [...old.messages, newMsg] };
+            // Update last_read_at so re-entry doesn't show a stale unread divider
+            return { ...old, messages: [...old.messages, newMsg], last_read_at: new Date().toISOString() };
           });
         },
       )

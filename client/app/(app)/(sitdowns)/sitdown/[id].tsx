@@ -11,16 +11,16 @@ import { useLocalSearchParams } from 'expo-router';
 import { router } from 'expo-router';
 import { ChevronLeft, Users } from 'lucide-react-native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import { useSitDownData } from '../../../hooks/useSitDownData';
-import { useAuth } from '../../../contexts/AuthContext';
-import { useMembers } from '../../../hooks/useMembers';
-import { useCommission } from '../../../hooks/useCommission';
-import { useResponsive } from '../../../hooks/useResponsive';
-import { buildMemberOwnerMap } from '../../../lib/mention-parser';
-import { ChatView } from '../../../components/chat/ChatView';
-import { MemberList } from '../../../components/sitdown/MemberList';
-import { toast } from '../../../lib/toast';
-import { BackgroundWatermark } from '../../../components/BackgroundWatermark';
+import { useSitDownData } from '../../../../hooks/useSitDownData';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { useMembers } from '../../../../hooks/useMembers';
+import { useCommission } from '../../../../hooks/useCommission';
+import { useResponsive } from '../../../../hooks/useResponsive';
+import { buildMemberOwnerMap } from '../../../../lib/mention-parser';
+import { ChatView } from '../../../../components/chat/ChatView';
+import { MemberList } from '../../../../components/sitdown/MemberList';
+import { toast } from '../../../../lib/toast';
+import { BackgroundWatermark } from '../../../../components/BackgroundWatermark';
 
 export default function SitdownScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -217,17 +217,14 @@ export default function SitdownScreen() {
             </View>
           </View>
 
-          {/* Desktop members toggle */}
-          {!isPhone && (
-            <Pressable
-              onPress={handleToggleMembers}
-              className={`h-8 w-8 items-center justify-center rounded-lg ${
-                showMembers ? 'bg-stone-700' : ''
-              }`}
-            >
-              <Users size={18} color={showMembers ? '#eab308' : '#78716c'} />
-            </Pressable>
-          )}
+          <Pressable
+            onPress={handleToggleMembers}
+            className={`h-8 w-8 items-center justify-center rounded-lg ${
+              showMembers ? 'bg-stone-700' : ''
+            }`}
+          >
+            <Users size={18} color={showMembers ? '#eab308' : '#78716c'} />
+          </Pressable>
         </View>
 
         {/* Chat */}

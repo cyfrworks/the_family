@@ -6,8 +6,6 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
-  Alert,
-  Platform,
 } from 'react-native';
 import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Loader } from 'lucide-react-native';
 import { cyfrCall } from '../../lib/cyfr';
@@ -19,6 +17,7 @@ import { PROVIDER_LABELS, PROVIDER_COLORS } from '../../config/constants';
 import { AddModelModal } from './AddModelModal';
 import type { CatalogModel, Provider } from '../../lib/types';
 import { toast } from '../../lib/toast';
+import { confirmAlert } from '../../lib/alert';
 import { Dropdown } from '../ui/Dropdown';
 
 const ADMIN_API_REF = 'formula:local.admin-api:0.1.0';
@@ -287,14 +286,8 @@ export function ModelCatalogManager() {
       ? `Delete "${label}"? ${affectedCount} member${affectedCount !== 1 ? 's' : ''} will need a new model assigned.`
       : `Delete "${label}"?`;
 
-    if (Platform.OS === 'web') {
-      if (window.confirm(msg)) doDelete(entry);
-    } else {
-      Alert.alert('Delete Model', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => doDelete(entry) },
-      ]);
-    }
+    const confirmed = await confirmAlert('Delete Model', msg);
+    if (confirmed) doDelete(entry);
   }
 
   if (loading) {

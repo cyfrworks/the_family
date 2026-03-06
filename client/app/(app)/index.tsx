@@ -1,7 +1,15 @@
 import { View, Text } from 'react-native';
+import { Redirect, type Href } from 'expo-router';
+import { useResponsive } from '../../hooks/useResponsive';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
 
 export default function DashboardScreen() {
+  const { isDesktop } = useResponsive();
+
+  if (!isDesktop) {
+    return <Redirect href={'/sitdowns' as Href} />;
+  }
+
   return (
     <View className="flex-1 items-center justify-center p-6">
       <BackgroundWatermark />

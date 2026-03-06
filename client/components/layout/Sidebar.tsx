@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable, Alert, Platform } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { DrawerContentScrollView, type DrawerContentComponentProps } from '@react-navigation/drawer';
 import { useRouter, usePathname } from 'expo-router';
@@ -27,7 +27,9 @@ import { CreateCommissionSitDownModal } from '../commission/CreateCommissionSitD
 import { InviteToCommissionModal } from '../commission/InviteToCommissionModal';
 import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
 import { toast } from '../../lib/toast';
+import { confirmAlert } from '../../lib/alert';
 import { Dropdown } from '../ui/Dropdown';
+import { RunYourFamilyButton } from '../common/RunYourFamilyButton';
 
 // ── Tooltip (press-to-reveal description) ──────────────────────────────
 function SitDownTooltip({ description }: { description: string }) {
@@ -125,6 +127,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
 
   const [showCreate, setShowCreate] = useState(false);
   const [showCommissionCreate, setShowCommissionCreate] = useState(false);
+  const [showCreatePicker, setShowCreatePicker] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showCommission, setShowCommission] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
@@ -142,60 +145,26 @@ export function Sidebar(props: DrawerContentComponentProps) {
     id: string,
     onDelete: (id: string) => Promise<void>,
   ) {
-    const doDelete = async () => {
-      try {
-        await onDelete(id);
-        if (pathname === `/sitdown/${id}`) {
-          router.replace('/');
-        }
-        toast.success('The sit-down is over.');
-      } catch {
-        toast.error("Couldn't end the sit-down.");
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm("End this sit-down for everyone? All messages will be lost.")) {
-        doDelete();
-      }
-    } else {
-      Alert.alert(
-        'End this sit-down?',
-        'End this sit-down for everyone? All messages will be lost.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: doDelete },
-        ],
-      );
+    const confirmed = await confirmAlert('End this sit-down?', 'End this sit-down for everyone? All messages will be lost.');
+    if (!confirmed) return;
+    try {
+      await onDelete(id);
+      if (pathname === `/sitdown/${id}`) router.replace('/');
+      toast.success('The sit-down is over.');
+    } catch {
+      toast.error("Couldn't end the sit-down.");
     }
   }
 
   async function handleLeaveSitDown(id: string) {
-    const doLeave = async () => {
-      try {
-        await leaveCommissionSitDown(id);
-        if (pathname === `/sitdown/${id}`) {
-          router.replace('/');
-        }
-        toast.success("You've left the sit-down.");
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Couldn't leave the sit-down.");
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Leave this sit-down? You can be re-invited later.')) {
-        doLeave();
-      }
-    } else {
-      Alert.alert(
-        'Leave this sit-down?',
-        'You can be re-invited later.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Leave', style: 'destructive', onPress: doLeave },
-        ],
-      );
+    const confirmed = await confirmAlert('Leave this sit-down?', 'Leave this sit-down? You can be re-invited later.');
+    if (!confirmed) return;
+    try {
+      await leaveCommissionSitDown(id);
+      if (pathname === `/sitdown/${id}`) router.replace('/');
+      toast.success("You've left the sit-down.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't leave the sit-down.");
     }
   }
 
@@ -285,6 +254,9 @@ export function Sidebar(props: DrawerContentComponentProps) {
     );
   }
 
+  const familyUnread = sitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
+  const commissionUnread = commissionSitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
+
   return (
     <>
       <View className="flex-1 bg-stone-900">
@@ -312,18 +284,50 @@ export function Sidebar(props: DrawerContentComponentProps) {
           style={{ backgroundColor: '#1c1917' }}
         >
           <View>
-            {/* ── Personal Sit-downs ─────────────────────── */}
-            <Text className="mb-1 text-xs font-semibold uppercase tracking-wider text-stone-500">
-              Sit-downs
-            </Text>
-            <Pressable
-              onPress={() => setShowCreate(true)}
-              className="mb-2 w-full rounded-lg bg-gold-600 px-3 py-2"
+            {/* ── Call a Sit-down ──────────────────────────── */}
+            <Dropdown
+              open={showCreatePicker}
+              onClose={() => setShowCreatePicker(false)}
+              trigger={
+                <Pressable
+                  onPress={() => setShowCreatePicker(!showCreatePicker)}
+                  className="mb-3 w-full rounded-lg bg-gold-600 px-3 py-2"
+                >
+                  <Text className="text-center font-serif text-sm font-bold text-stone-950">
+                    Call a Sit-down
+                  </Text>
+                </Pressable>
+              }
             >
-              <Text className="text-center font-serif text-sm font-bold text-stone-950">
-                Call a Sit-down
+              <Pressable
+                onPress={() => { setShowCreatePicker(false); setShowCreate(true); }}
+                className="flex-row items-center gap-2 px-3 py-2.5"
+              >
+                <MessageSquare size={14} color="#d6d3d1" />
+                <Text className="text-sm text-stone-100">Family</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { setShowCreatePicker(false); setShowCommissionCreate(true); }}
+                className="flex-row items-center gap-2 px-3 py-2.5"
+              >
+                <Users size={14} color="#d6d3d1" />
+                <Text className="text-sm text-stone-100">Commission</Text>
+              </Pressable>
+            </Dropdown>
+
+            {/* ── Family Sit-downs ─────────────────────────── */}
+            <View className="mb-1 flex-row items-center gap-1.5">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                Family
               </Text>
-            </Pressable>
+              {familyUnread > 0 && (
+                <View className="h-3.5 min-w-[14px] items-center justify-center rounded-full bg-gold-600 px-1">
+                  <Text className="text-[8px] font-bold text-stone-950">
+                    {familyUnread > 99 ? '99+' : familyUnread}
+                  </Text>
+                </View>
+              )}
+            </View>
 
             <View style={{ gap: 2 }}>
               {sitDowns.map((sd) =>
@@ -341,19 +345,20 @@ export function Sidebar(props: DrawerContentComponentProps) {
               )}
             </View>
 
-            {/* ── Commission Sit-downs ────────────────────── */}
-            <View className="mt-6 border-t border-stone-800 pt-4">
-              <Text className="mb-1 text-xs font-semibold uppercase tracking-wider text-stone-500">
-                Commission Sit-downs
-              </Text>
-              <Pressable
-                onPress={() => setShowCommissionCreate(true)}
-                className="mb-2 w-full rounded-lg bg-gold-600 px-3 py-2"
-              >
-                <Text className="text-center font-serif text-sm font-bold text-stone-950">
-                  Call a Sit-down
+            {/* ── Commission Sit-downs ──────────────────────── */}
+            <View className="mt-5 border-t border-stone-800 pt-4">
+              <View className="mb-1 flex-row items-center gap-1.5">
+                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Commission
                 </Text>
-              </Pressable>
+                {commissionUnread > 0 && (
+                  <View className="h-3.5 min-w-[14px] items-center justify-center rounded-full bg-gold-600 px-1">
+                    <Text className="text-[8px] font-bold text-stone-950">
+                      {commissionUnread > 99 ? '99+' : commissionUnread}
+                    </Text>
+                  </View>
+                )}
+              </View>
 
               <View style={{ gap: 2 }}>
                 {commissionSitDowns.map((sd) =>
@@ -447,24 +452,15 @@ export function Sidebar(props: DrawerContentComponentProps) {
                       }
                     >
                       <Pressable
-                        onPress={() => {
+                        onPress={async () => {
                           setMenuOpen(null);
-                          const msg = `Remove ${contactName} from The Commission?`;
-                          const doRemove = async () => {
-                            try {
-                              await removeContact(c.contact_user_id);
-                              toast.success(`${contactName} has been removed.`);
-                            } catch {
-                              toast.error("Couldn't remove contact.");
-                            }
-                          };
-                          if (Platform.OS === 'web') {
-                            if (window.confirm(msg)) doRemove();
-                          } else {
-                            Alert.alert('Remove contact', msg, [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Remove', style: 'destructive', onPress: doRemove },
-                            ]);
+                          const confirmed = await confirmAlert('Remove contact', `Remove ${contactName} from The Commission?`);
+                          if (!confirmed) return;
+                          try {
+                            await removeContact(c.contact_user_id);
+                            toast.success(`${contactName} has been removed.`);
+                          } catch {
+                            toast.error("Couldn't remove contact.");
                           }
                         }}
                         className="flex-row items-center gap-2 px-3 py-1.5"
@@ -583,6 +579,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
                 </View>
               </View>
             </View>
+            <RunYourFamilyButton compact />
             <Pressable
               onPress={handleSignOut}
               className="rounded-md p-1.5"

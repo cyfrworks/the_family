@@ -82,7 +82,17 @@ export function ChatView({
   // Find the first unread message from someone else (in original order) for the "New messages" divider.
   // Only consider messages between lastReadAt and enteredAt — messages arriving via realtime
   // while the user is actively viewing are not "unread".
+  const [hideDivider, setHideDivider] = useState(false);
+  const initialMsgCount = useRef<number | null>(null);
+
+  // Reset divider state when switching sitdowns
+  useEffect(() => {
+    setHideDivider(false);
+    initialMsgCount.current = null;
+  }, [sitDownId]);
+
   const firstUnreadIndex = useMemo(() => {
+    if (hideDivider) return -1;
     if (!lastReadAt || !userId) return -1;
     const threshold = new Date(lastReadAt).getTime();
     const cap = enteredAt ? new Date(enteredAt).getTime() : Infinity;
@@ -92,7 +102,20 @@ export function ChatView({
         return t > threshold && t <= cap && m.sender_user_id !== userId;
       },
     );
-  }, [messages, lastReadAt, enteredAt, userId]);
+  }, [messages, lastReadAt, enteredAt, userId, hideDivider]);
+
+  // Hide the divider after 10s or when new messages arrive / user sends
+  useEffect(() => {
+    if (firstUnreadIndex < 0) return;
+    if (initialMsgCount.current === null) {
+      initialMsgCount.current = messages.length;
+    } else if (messages.length !== initialMsgCount.current) {
+      setHideDivider(true);
+      return;
+    }
+    const timer = setTimeout(() => setHideDivider(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [firstUnreadIndex, messages.length]);
 
   // For FlatList inverted, reverse so newest is first; inverted flips visually
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);

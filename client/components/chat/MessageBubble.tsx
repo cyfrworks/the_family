@@ -162,7 +162,7 @@ export function MessageBubble({ message, replyTo, onReply, onScrollToMessage }: 
             <Text className="text-[10px] text-stone-600">{time}</Text>
           </View>
           {replyQuote}
-          <View className="mt-0.5 flex-row items-end">
+          <View className="mt-1 rounded-lg bg-stone-700/25 px-3 py-2 flex-row items-end">
             <View className="flex-1">
               <MessageContent content={message.content} />
             </View>

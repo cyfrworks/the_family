@@ -17,6 +17,7 @@ services:
   # ════════════════════════════════════════════
 
   web:
+    container_name: web
     profiles: [caddy]
     image: node:20-alpine
     working_dir: /app
@@ -33,6 +34,7 @@ services:
   # Caddy — Reverse Proxy + Web Frontend
 
   caddy:
+    container_name: caddy
     profiles: [caddy]
     image: caddy:2-alpine
     ports:

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, Pressable, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
 import { Plus, UserPlus, X } from 'lucide-react-native';
 import { PROVIDER_COLORS } from '../../config/constants';
 import { useAuth } from '../../contexts/AuthContext';
+import { confirmAlert } from '../../lib/alert';
 import type { SitDownParticipant, Member, CommissionContact } from '../../lib/types';
 import type { MembersByOwner } from '../../hooks/useSitDownData';
 
@@ -71,28 +72,16 @@ export function MemberList({
     }
   }
 
-  function handleRemove(participantId: string, name: string) {
-    const msg = `Remove ${name} from this sit-down?`;
-    if (Platform.OS === 'web') {
-      if (window.confirm(msg)) onRemoveParticipant?.(participantId);
-    } else {
-      Alert.alert('Remove Member', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => onRemoveParticipant?.(participantId) },
-      ]);
-    }
+  async function handleRemove(participantId: string, name: string) {
+    const confirmed = await confirmAlert('Remove Member', `Remove ${name} from this sit-down?`);
+    if (!confirmed) return;
+    onRemoveParticipant?.(participantId);
   }
 
-  function handleLeave() {
-    const msg = 'Are you sure you want to leave this sit-down?';
-    if (Platform.OS === 'web') {
-      if (window.confirm(msg)) onLeave?.();
-    } else {
-      Alert.alert('Leave Sit-Down', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Leave', style: 'destructive', onPress: () => onLeave?.() },
-      ]);
-    }
+  async function handleLeave() {
+    const confirmed = await confirmAlert('Leave Sit-Down', 'Are you sure you want to leave this sit-down?');
+    if (!confirmed) return;
+    onLeave?.();
   }
 
   async function handleAddMember(memberId: string) {
@@ -115,26 +104,18 @@ export function MemberList({
     }
   }
 
-  function handleToggleAdmin(userId: string, name: string, currentlyAdmin: boolean) {
+  async function handleToggleAdmin(userId: string, name: string, currentlyAdmin: boolean) {
     const verb = currentlyAdmin ? 'Demote' : 'Promote';
     const desc = currentlyAdmin
       ? `Remove ${name} as admin?`
       : `Make ${name} an admin? They\u2019ll be able to manage this sit-down.`;
-    const doToggle = async () => {
-      setTogglingAdmin(userId);
-      try {
-        await onToggleAdmin?.(userId);
-      } finally {
-        setTogglingAdmin(null);
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm(desc)) doToggle();
-    } else {
-      Alert.alert(`${verb} Admin`, desc, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: verb, style: currentlyAdmin ? 'destructive' : 'default', onPress: doToggle },
-      ]);
+    const confirmed = await confirmAlert(`${verb} Admin`, desc);
+    if (!confirmed) return;
+    setTogglingAdmin(userId);
+    try {
+      await onToggleAdmin?.(userId);
+    } finally {
+      setTogglingAdmin(null);
     }
   }
 

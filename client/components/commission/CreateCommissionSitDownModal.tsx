@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { X, ChevronRight, ChevronLeft, Check } from 'lucide-react-native';
 import { showToast } from '../../lib/toast';
 import { useMembers } from '../../hooks/useMembers';
@@ -86,12 +86,22 @@ export function CreateCommissionSitDownModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      transparent={true}
+      animationType="fade"
+      transparent
       onRequestClose={handleClose}
     >
-      <View className="flex-1 items-center justify-center bg-black/60 px-4">
-        <View className="w-full max-w-md rounded-xl border border-stone-800 bg-stone-900">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+        <Pressable
+          className="flex-1 items-center justify-center bg-black/60 p-4"
+          onPress={handleClose}
+        >
+          <Pressable
+            className="w-full max-w-md rounded-xl border border-stone-800 bg-stone-900"
+            onPress={() => {}}
+          >
           {/* Header */}
           <View className="flex-row items-center justify-between border-b border-stone-800 px-5 py-4">
             <Text className="font-serif text-lg font-bold text-stone-100">
@@ -301,8 +311,9 @@ export function CreateCommissionSitDownModal({
               </View>
             </View>
           )}
-        </View>
-      </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

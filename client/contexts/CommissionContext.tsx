@@ -5,6 +5,7 @@ import { getAccessToken } from '../lib/supabase';
 import { getSupabase } from '../lib/realtime';
 import { useAuth } from './AuthContext';
 import type { CommissionContact, SitDown } from '../lib/types';
+import { getActiveSitDown } from '../hooks/useSitDowns';
 
 const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
 
@@ -92,6 +93,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
         (payload) => {
           const msg = payload.new as { sit_down_id: string; sender_user_id: string | null };
           if (msg.sender_user_id === user.id) return;
+          if (msg.sit_down_id === getActiveSitDown()) return;
           queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
             if (!old) return old;
             const idx = old.commissionSitDowns.findIndex((sd) => sd.id === msg.sit_down_id);

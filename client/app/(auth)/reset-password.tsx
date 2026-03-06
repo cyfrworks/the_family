@@ -3,6 +3,7 @@ import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, Scrol
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { getSupabase } from '../../lib/realtime';
+import { RunYourFamilyButton } from '../../components/common/RunYourFamilyButton';
 
 export default function ResetPasswordScreen() {
   const [newPassword, setNewPassword] = useState('');
@@ -119,6 +120,10 @@ export default function ResetPasswordScreen() {
                   </Pressable>
                 </View>
               )}
+            </View>
+
+            <View className="mt-6 items-center">
+              <RunYourFamilyButton />
             </View>
           </View>
         </ScrollView>
