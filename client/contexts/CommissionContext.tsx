@@ -63,7 +63,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
+    const channel = getSupabase()
       .channel(`commission:${user.id}`)
       .on(
         'postgres_changes',
@@ -84,7 +84,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
+    const channel = getSupabase()
       .channel('commission-sit-down-unread')
       .on(
         'postgres_changes',

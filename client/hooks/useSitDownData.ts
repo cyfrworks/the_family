@@ -28,7 +28,7 @@ let globalTypingChannel: RealtimeChannel | null = null;
 
 function ensureGlobalTypingSubscription() {
   if (globalTypingChannel) return;
-  globalTypingChannel = supabase
+  globalTypingChannel = getSupabase()
     .channel('global-typing')
     .on(
       'postgres_changes',
@@ -193,7 +193,7 @@ export function useSitDownData(sitDownId: string | undefined) {
   useEffect(() => {
     if (!sitDownId) return;
 
-    const channel: RealtimeChannel = supabase
+    const channel: RealtimeChannel = getSupabase()
       .channel(`sit-down:${sitDownId}`)
       .on(
         'postgres_changes',
@@ -252,7 +252,7 @@ export function useSitDownData(sitDownId: string | undefined) {
   useEffect(() => {
     if (!sitDownId) return;
 
-    const channel = supabase
+    const channel = getSupabase()
       .channel(`participants:${sitDownId}`)
       .on(
         'postgres_changes',

@@ -21,7 +21,7 @@ function ensureMembershipChannel(userId: string, queryClient: QueryClient) {
   if (membershipChannel) getSupabase().removeChannel(membershipChannel);
 
   membershipUserId = userId;
-  membershipChannel = supabase
+  membershipChannel = getSupabase()
     .channel('sit-down-membership')
     .on('broadcast', { event: 'membership-changed' }, ({ payload }) => {
       if (payload?.target_user_id === userId) {
@@ -75,7 +75,7 @@ export function useSitDowns() {
     // Subscribe to broadcast channel for invite/removal notifications
     ensureMembershipChannel(user.id, queryClient);
 
-    const channel = supabase
+    const channel = getSupabase()
       .channel('sit-down-unread')
       .on(
         'postgres_changes',
