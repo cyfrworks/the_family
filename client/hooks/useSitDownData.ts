@@ -7,7 +7,8 @@ import { getUserFriendlyError, type FriendlyError } from '../lib/error-messages'
 import type { SitDown, SitDownParticipant, Member, Message, Profile } from '../lib/types';
 import type { RemoteTypingIndicator } from './useMessages';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { notifyMembershipChange, setActiveSitDown } from './useSitDowns';
+import { setActiveSitDown, broadcastLeave } from '../lib/realtime-hub';
+import { useAuth } from '../contexts/AuthContext';
 
 export interface MembersByOwner {
   profile: Profile;
@@ -95,6 +96,7 @@ interface OlderMessagesPage {
 
 export function useSitDownData(sitDownId: string | undefined) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [typingIndicators, setTypingIndicators] = useState<RemoteTypingIndicator[]>([]);
   const [enteredAt, setEnteredAt] = useState<string | null>(null);
 
@@ -227,12 +229,13 @@ export function useSitDownData(sitDownId: string | undefined) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
 
-  // ---- Realtime: append messages from payload ----
+  // ---- Realtime: messages + participants on a single channel ----
   useEffect(() => {
     if (!sitDownId) return;
 
     const channel: RealtimeChannel = getSupabase()
-      .channel(`sit-down:${sitDownId}`)
+      .channel(`sitdown:${sitDownId}`)
+      // --- messages INSERT (filtered) ---
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `sit_down_id=eq.${sitDownId}` },
@@ -241,6 +244,11 @@ export function useSitDownData(sitDownId: string | undefined) {
 
           // Hydrate sender info from cached participants
           const cachedData = queryClient.getQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId]);
+          if (!cachedData) {
+            queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
+            return;
+          }
+
           if (cachedData?.participants) {
             const sender = cachedData.participants.find((p) =>
               newMsg.sender_type === 'don'
@@ -255,11 +263,42 @@ export function useSitDownData(sitDownId: string | undefined) {
 
           queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
             if (!old) return old;
-            // Deduplicate
             if (old.messages.some((m) => m.id === newMsg.id)) return old;
-            // Update last_read_at so re-entry doesn't show a stale unread divider
             return { ...old, messages: [...old.messages, newMsg], last_read_at: new Date().toISOString() };
           });
+        },
+      )
+      // --- participants DELETE (filtered) ---
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
+        (payload) => {
+          const deleted = payload.old as { id?: string };
+          if (deleted.id) {
+            queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                participants: old.participants.filter((p) => p.id !== deleted.id),
+              };
+            });
+          }
+        },
+      )
+      // --- participants INSERT (filtered) ---
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
+        },
+      )
+      // --- participants UPDATE (filtered) ---
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
         },
       )
       .subscribe();
@@ -286,51 +325,6 @@ export function useSitDownData(sitDownId: string | undefined) {
       typingListeners.get(sitDownId)?.delete(listener);
     };
   }, [sitDownId]);
-
-  // ---- Participant realtime: smart refresh ----
-  useEffect(() => {
-    if (!sitDownId) return;
-
-    const channel = getSupabase()
-      .channel(`participants:${sitDownId}`)
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
-        (payload) => {
-          const deleted = payload.old as { id?: string };
-          if (deleted.id) {
-            queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
-              if (!old) return old;
-              return {
-                ...old,
-                participants: old.participants.filter((p) => p.id !== deleted.id),
-              };
-            });
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
-        () => {
-          // INSERT needs joined data (profile/member) — invalidate to trigger refetch
-          queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'sit_down_participants', filter: `sit_down_id=eq.${sitDownId}` },
-        () => {
-          // UPDATE (e.g. is_admin toggle) — invalidate to get fresh data
-          queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      getSupabase().removeChannel(channel);
-    };
-  }, [sitDownId, queryClient]);
 
   // ---- Mutation helpers ----
 
@@ -399,7 +393,6 @@ export function useSitDownData(sitDownId: string | undefined) {
 
     const res = result as Record<string, unknown> | null;
     if (res?.error) throw new Error((res.error as Record<string, string>).message);
-    notifyMembershipChange(userId);
     await refreshParticipants();
   }
 
@@ -421,7 +414,29 @@ export function useSitDownData(sitDownId: string | undefined) {
     await refreshParticipants();
   }
 
-  async function removeParticipant(participantId: string) {
+  async function leaveSitDown() {
+    if (!sitDownId) throw new Error('Missing context');
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: SIT_DOWN_REF,
+      input: { action: 'leave', access_token: accessToken, sit_down_id: sitDownId },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+    queryClient.invalidateQueries({ queryKey: ['sitDowns'] });
+    queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
+
+    if (user?.id && sitDownId) broadcastLeave(user.id, sitDownId);
+  }
+
+  async function removeParticipant(participantId: string, { isLeaving = false } = {}) {
     if (!sitDownId) throw new Error('Missing context');
     const accessToken = getAccessToken();
     if (!accessToken) throw new Error('Not authenticated');
@@ -436,15 +451,11 @@ export function useSitDownData(sitDownId: string | undefined) {
 
     const res = result as Record<string, unknown> | null;
     if (res?.error) throw new Error((res.error as Record<string, string>).message);
-    // Notify removed Don so their sidebar updates
-    const removed = enterQuery.data?.participants.find((p) => p.id === participantId);
-    if (removed?.user_id) {
-      notifyMembershipChange(removed.user_id);
-    }
-    // Invalidate sidebar lists so removed sit-downs disappear
     queryClient.invalidateQueries({ queryKey: ['sitDowns'] });
     queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
-    await refreshParticipants();
+    if (!isLeaving) {
+      await refreshParticipants();
+    }
   }
 
   // ---- Derived state ----
@@ -537,6 +548,7 @@ export function useSitDownData(sitDownId: string | undefined) {
     addMember,
     addDon,
     removeParticipant,
+    leaveSitDown,
     toggleAdmin,
     // Pagination
     loadOlderMessages,

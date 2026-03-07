@@ -1,15 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import { getSupabase } from '../lib/realtime';
 import { useAuth } from './AuthContext';
 import type { CommissionContact, SitDown } from '../lib/types';
-import { getActiveSitDown } from '../hooks/useSitDowns';
 
 const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
 
-interface CommissionData {
+export interface CommissionData {
   contacts: CommissionContact[];
   pendingInvites: CommissionContact[];
   sentInvites: CommissionContact[];
@@ -59,57 +57,6 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   const refetch = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
   }, [queryClient]);
-
-  // Realtime: commission_contacts changes (rare) — invalidate
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = getSupabase()
-      .channel(`commission:${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'commission_contacts', filter: `user_id=eq.${user.id}` },
-        () => { refetch(); },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'commission_contacts', filter: `contact_user_id=eq.${user.id}` },
-        () => { refetch(); },
-      )
-      .subscribe();
-
-    return () => { getSupabase().removeChannel(channel); };
-  }, [user, refetch]);
-
-  // Realtime: local unread increment for commission sit-downs on new messages
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = getSupabase()
-      .channel('commission-sit-down-unread')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as { sit_down_id: string; sender_user_id: string | null };
-          if (msg.sender_user_id === user.id) return;
-          if (msg.sit_down_id === getActiveSitDown()) return;
-          queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
-            if (!old) return old;
-            const idx = old.commissionSitDowns.findIndex((sd) => sd.id === msg.sit_down_id);
-            if (idx === -1) return old;
-            const updated = [...old.commissionSitDowns];
-            updated[idx] = { ...updated[idx], unread_count: (updated[idx].unread_count ?? 0) + 1 };
-            return { ...old, commissionSitDowns: updated };
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      getSupabase().removeChannel(channel);
-    };
-  }, [user, queryClient]);
 
   function markSitDownAsRead(id: string) {
     queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {

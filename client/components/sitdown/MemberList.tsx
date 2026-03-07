@@ -54,9 +54,10 @@ export function MemberList({
             user_id: p.user_id!,
             profile: p.profile,
           }));
-  const memberParticipants = participants.filter((p) => p.member_id);
+  const memberParticipants = participants.filter((p) => p.member_id && p.member?.member_type !== 'informant');
+  const informantParticipants = participants.filter((p) => p.member_id && p.member?.member_type === 'informant');
 
-  const participantMemberIds = new Set(memberParticipants.map((p) => p.member_id));
+  const participantMemberIds = new Set([...memberParticipants, ...informantParticipants].map((p) => p.member_id));
   const addableMembers =
     availableMembers?.filter((m) => !participantMemberIds.has(m.id)) ?? [];
 
@@ -65,9 +66,9 @@ export function MemberList({
   if (isCommission && membersByOwner && user) {
     const myEntry = membersByOwner.get(user.id);
     if (myEntry) {
-      const myAddable = myEntry.members.filter((m) => !participantMemberIds.has(m.id));
+      const myAddable = myEntry.members.filter((m) => !participantMemberIds.has(m.id) && m.member_type !== 'informant');
       if (myAddable.length > 0) {
-        groupedAddableMembers.set(user.id, { label: 'Your Family', members: myAddable });
+        groupedAddableMembers.set(user.id, { label: 'Add Member', members: myAddable });
       }
     }
   }
@@ -79,7 +80,10 @@ export function MemberList({
   }
 
   async function handleLeave() {
-    const confirmed = await confirmAlert('Leave Sit-Down', 'Are you sure you want to leave this sit-down?');
+    const confirmed = await confirmAlert(
+      'Leave this sit-down?',
+      'Walk away and the words stay behind. All messages will be lost.',
+    );
     if (!confirmed) return;
     onLeave?.();
   }
@@ -224,6 +228,39 @@ export function MemberList({
           </View>
         </View>
 
+        {/* Informant participants */}
+        {informantParticipants.length > 0 && (
+          <View>
+            <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
+              Informants
+            </Text>
+            <View className="gap-0.5">
+              {informantParticipants.map((p) => (
+                <View
+                  key={p.id}
+                  className="flex-row items-center gap-2 rounded-md px-2 py-1.5"
+                >
+                  <View className="h-6 w-6 shrink-0 items-center justify-center rounded bg-stone-700">
+                    <Text className="text-[11px]">{p.member?.avatar_url || '\u{1F50D}'}</Text>
+                  </View>
+                  <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
+                    {p.member?.name ?? 'Unknown'}
+                  </Text>
+                  {onRemoveParticipant && (!isCommission || p.member?.owner_id === user?.id) && (
+                    <Pressable
+                      onPress={() => handleRemove(p.id, p.member?.name ?? 'this informant')}
+                      className="ml-auto rounded p-0.5"
+                      hitSlop={8}
+                    >
+                      <X size={12} color="#57534e" />
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Add Member -- grouped by family for commission sit-downs */}
         {isCommission &&
           groupedAddableMembers.size > 0 &&
@@ -260,36 +297,100 @@ export function MemberList({
             ),
           )}
 
-        {/* Add Member -- flat list for personal sit-downs */}
-        {!isCommission && addableMembers.length > 0 && onAddMember && (
-          <View>
-            <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
-              Add Member
-            </Text>
-            <View className="gap-0.5">
-              {addableMembers.map((member) => (
-                <Pressable
-                  key={member.id}
-                  onPress={() => handleAddMember(member.id)}
-                  disabled={adding}
-                  className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
-                >
-                  <Plus size={12} color="#eab308" />
-                  <View
-                    className={`h-5 w-5 shrink-0 items-center justify-center rounded ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
+        {/* Add Informant -- for commission sit-downs (only your own informants) */}
+        {isCommission && onAddMember && (() => {
+          const addableInf = addableMembers.filter((m) => m.member_type === 'informant' && m.owner_id === user?.id);
+          if (addableInf.length === 0) return null;
+          return (
+            <View>
+              <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
+                Add Informant
+              </Text>
+              <View className="gap-0.5">
+                {addableInf.map((member) => (
+                  <Pressable
+                    key={member.id}
+                    onPress={() => handleAddMember(member.id)}
+                    disabled={adding}
+                    className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
                   >
-                    <Text className="text-[8px] font-bold text-white">
-                      {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
+                    <Plus size={12} color="#eab308" />
+                    <View className="h-5 w-5 shrink-0 items-center justify-center rounded bg-stone-700">
+                      <Text className="text-[10px]">{member.avatar_url || '\u{1F50D}'}</Text>
+                    </View>
+                    <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
+                      {member.name}
                     </Text>
-                  </View>
-                  <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
-                    {member.name}
-                  </Text>
-                </Pressable>
-              ))}
+                  </Pressable>
+                ))}
+              </View>
             </View>
-          </View>
-        )}
+          );
+        })()}
+
+        {/* Add Member -- flat list for personal sit-downs */}
+        {!isCommission && onAddMember && (() => {
+          const addableAI = addableMembers.filter((m) => m.member_type !== 'informant');
+          const addableInf = addableMembers.filter((m) => m.member_type === 'informant');
+          return (
+            <>
+              {addableAI.length > 0 && (
+                <View>
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
+                    Add Member
+                  </Text>
+                  <View className="gap-0.5">
+                    {addableAI.map((member) => (
+                      <Pressable
+                        key={member.id}
+                        onPress={() => handleAddMember(member.id)}
+                        disabled={adding}
+                        className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
+                      >
+                        <Plus size={12} color="#eab308" />
+                        <View
+                          className={`h-5 w-5 shrink-0 items-center justify-center rounded ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
+                        >
+                          <Text className="text-[8px] font-bold text-white">
+                            {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
+                          {member.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {addableInf.length > 0 && (
+                <View>
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-1.5 px-1">
+                    Add Informant
+                  </Text>
+                  <View className="gap-0.5">
+                    {addableInf.map((member) => (
+                      <Pressable
+                        key={member.id}
+                        onPress={() => handleAddMember(member.id)}
+                        disabled={adding}
+                        className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
+                      >
+                        <Plus size={12} color="#eab308" />
+                        <View className="h-5 w-5 shrink-0 items-center justify-center rounded bg-stone-700">
+                          <Text className="text-[10px]">{member.avatar_url || '\u{1F50D}'}</Text>
+                        </View>
+                        <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
+                          {member.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </>
+          );
+        })()}
 
         {/* Invite Don to commission sit-down */}
         {isCommission && addableContacts && addableContacts.length > 0 && onAddUser && (

@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Modal, View, Text, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { X } from 'lucide-react-native';
-import { useSitDowns } from '../../hooks/useSitDowns';
 import { toast } from '../../lib/toast';
+import type { SitDown } from '../../lib/types';
 
 interface CreateSitdownModalProps {
   visible: boolean;
   onClose: () => void;
   onCreated: (id: string) => void;
+  onCreate: (name: string, description?: string) => Promise<SitDown>;
 }
 
-export function CreateSitdownModal({ visible, onClose, onCreated }: CreateSitdownModalProps) {
-  const { createSitDown } = useSitDowns();
+export function CreateSitdownModal({ visible, onClose, onCreated, onCreate }: CreateSitdownModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,7 +20,7 @@ export function CreateSitdownModal({ visible, onClose, onCreated }: CreateSitdow
     if (!name.trim()) return;
     setLoading(true);
     try {
-      const sitDown = await createSitDown(name.trim(), description.trim() || undefined);
+      const sitDown = await onCreate(name.trim(), description.trim() || undefined);
       setName('');
       setDescription('');
       onCreated(sitDown.id);

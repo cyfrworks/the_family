@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { MessageSquare, Users } from 'lucide-react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { useSitDowns } from '../../hooks/useSitDowns';
@@ -18,12 +18,25 @@ interface SitDownListProps {
 export function SitDownList({ variant, onNavigate }: SitDownListProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { sitDowns, deleteSitDown, markAsRead: markSitDownAsRead, refetch: refetchSitDowns } = useSitDowns();
-  const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown, leaveSitDown: leaveCommissionSitDown, markAsRead: markCommissionAsRead } = useCommissionSitDowns();
+  const {
+    sitDowns,
+    loading: familyLoading,
+    createSitDown,
+    leaveSitDown: leaveFamilySitDown,
+    markAsRead: markSitDownAsRead,
+    refetch: refetchSitDowns,
+  } = useSitDowns();
+  const {
+    sitDowns: commissionSitDowns,
+    loading: commissionLoading,
+    leaveSitDown: leaveCommissionSitDown,
+    markAsRead: markCommissionAsRead,
+  } = useCommissionSitDowns();
 
   const [segment, setSegment] = useState<Segment>('family');
   const [showCreate, setShowCreate] = useState(false);
   const [showCommissionCreate, setShowCommissionCreate] = useState(false);
+  const isTab = variant === 'tab';
 
   function handleSitDownPress(id: string, markRead?: (id: string) => void) {
     markRead?.(id);
@@ -31,13 +44,12 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
     router.push(`/sitdown/${id}`);
   }
 
-  const isTab = variant === 'tab';
-
   if (isTab) {
     // Tab variant: segmented control to toggle between Family / Commission
     const activeSitDowns = segment === 'family' ? sitDowns : commissionSitDowns;
-    const activeDelete = segment === 'family' ? deleteSitDown : deleteCommissionSitDown;
+    const activeLeave = segment === 'family' ? leaveFamilySitDown : leaveCommissionSitDown;
     const activeMarkRead = segment === 'family' ? markSitDownAsRead : markCommissionAsRead;
+    const activeLoading = segment === 'family' ? familyLoading : commissionLoading;
 
     const familyUnread = sitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
     const commissionUnread = commissionSitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
@@ -93,6 +105,12 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
 
           {/* List */}
           <View className="px-4" style={{ gap: 2 }}>
+            {activeLoading && activeSitDowns.length === 0 && (
+              <View className="items-center py-8">
+                <ActivityIndicator color="#78716c" />
+                <Text className="mt-2 text-sm text-stone-500">Loading sit-downs...</Text>
+              </View>
+            )}
             {activeSitDowns.map((sd) => (
               <SitDownListItem
                 key={sd.id}
@@ -103,13 +121,12 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
                     : <Users size={18} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />
                 }
                 onPress={() => handleSitDownPress(sd.id, activeMarkRead)}
-                onDelete={activeDelete}
-                onLeave={segment === 'commission' ? leaveCommissionSitDown : undefined}
+                onLeave={activeLeave}
                 onMarkRead={activeMarkRead}
                 variant="tab"
               />
             ))}
-            {activeSitDowns.length === 0 && (
+            {!activeLoading && activeSitDowns.length === 0 && (
               <Text className="px-3 py-8 text-center text-sm text-stone-600">
                 {segment === 'family' ? 'No sit-downs yet. Start one.' : 'No commission sit-downs yet.'}
               </Text>
@@ -120,6 +137,7 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
         <CreateSitdownModal
           visible={showCreate}
           onClose={() => setShowCreate(false)}
+          onCreate={createSitDown}
           onCreated={(id) => {
             setShowCreate(false);
             refetchSitDowns();
@@ -162,7 +180,7 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
               sitDown={sd}
               icon={<MessageSquare size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />}
               onPress={() => handleSitDownPress(sd.id, markSitDownAsRead)}
-              onDelete={deleteSitDown}
+              onLeave={leaveFamilySitDown}
               onMarkRead={markSitDownAsRead}
               variant="sidebar"
             />
@@ -194,7 +212,6 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
                 sitDown={sd}
                 icon={<Users size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />}
                 onPress={() => handleSitDownPress(sd.id, markCommissionAsRead)}
-                onDelete={deleteCommissionSitDown}
                 onLeave={leaveCommissionSitDown}
                 onMarkRead={markCommissionAsRead}
                 variant="sidebar"
@@ -212,6 +229,7 @@ export function SitDownList({ variant, onNavigate }: SitDownListProps) {
       <CreateSitdownModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
+        onCreate={createSitDown}
         onCreated={(id) => {
           setShowCreate(false);
           onNavigate?.();

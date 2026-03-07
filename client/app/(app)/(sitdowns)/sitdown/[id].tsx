@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSitDownData } from '../../../../hooks/useSitDownData';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useMembers } from '../../../../hooks/useMembers';
+import { useInformants } from '../../../../hooks/useInformants';
 import { useCommission } from '../../../../hooks/useCommission';
 import { useResponsive } from '../../../../hooks/useResponsive';
 import { buildMemberOwnerMap } from '../../../../lib/mention-parser';
@@ -27,6 +28,7 @@ export default function SitdownScreen() {
   const { isPhone } = useResponsive();
   const { user } = useAuth();
   const { members: myMembers } = useMembers();
+  const { informants: myInformants } = useInformants();
   const { contacts } = useCommission();
 
   const {
@@ -48,11 +50,23 @@ export default function SitdownScreen() {
     addMember,
     addDon,
     removeParticipant,
+    leaveSitDown,
     toggleAdmin,
   } = useSitDownData(id);
 
   const [showMembers, setShowMembers] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
+
+  // Auto-navigate away when sit-down is removed (e.g. left from another device)
+  const wasLoaded = useRef(false);
+  if (sitDown) wasLoaded.current = true;
+
+  useEffect(() => {
+    if (wasLoaded.current && !sitDown && !loading) {
+      toast.info("The sit-down has ended.");
+      router.replace('/');
+    }
+  }, [sitDown, loading]);
   const snapPoints = useMemo(() => ['50%', '85%'], []);
 
   // Build disambiguation map for members with duplicate names (for mention autocomplete)
@@ -121,7 +135,12 @@ export default function SitdownScreen() {
   }
 
   // For commission sit-downs, use all participant Dons' members as available
-  const availableMembers = sitDown.is_commission ? commissionMembers : myMembers;
+  // Always include informants (they can be added to any sit-down)
+  // Deduplicate: commissionMembers may already contain informants
+  const commissionMemberIds = new Set(commissionMembers.map((m) => m.id));
+  const availableMembers = sitDown.is_commission
+    ? [...commissionMembers, ...myInformants.filter((i) => !commissionMemberIds.has(i.id))]
+    : [...myMembers, ...myInformants];
 
   // For commission sit-downs, find contacts not yet in the sit-down
   const participantUserIds = new Set(
@@ -175,10 +194,8 @@ export default function SitdownScreen() {
         }
       : undefined,
     onLeave: async () => {
-      const myParticipant = participants.find((p) => p.user_id === user?.id);
-      if (!myParticipant) return;
       try {
-        await removeParticipant(myParticipant.id);
+        await leaveSitDown();
         router.back();
         toast.success("You've left the table.");
       } catch {

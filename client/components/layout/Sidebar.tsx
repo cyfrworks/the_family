@@ -121,9 +121,9 @@ export function Sidebar(props: DrawerContentComponentProps) {
 
   const { profile, isGodfather, tier, signOut } = useAuth();
   const realtimeConnected = useRealtimeStatus();
-  const { sitDowns, deleteSitDown, markAsRead: markSitDownAsRead, refetch: refetchSitDowns } = useSitDowns();
+  const { sitDowns, createSitDown, leaveSitDown: leaveFamilySitDown, markAsRead: markSitDownAsRead, refetch: refetchSitDowns } = useSitDowns();
   const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
-  const { sitDowns: commissionSitDowns, deleteSitDown: deleteCommissionSitDown, leaveSitDown: leaveCommissionSitDown, markAsRead: markCommissionAsRead } = useCommissionSitDowns();
+  const { sitDowns: commissionSitDowns, leaveSitDown: leaveCommissionSitDown, markAsRead: markCommissionAsRead } = useCommissionSitDowns();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showCommissionCreate, setShowCommissionCreate] = useState(false);
@@ -141,42 +141,28 @@ export function Sidebar(props: DrawerContentComponentProps) {
     router.replace('/(auth)/login');
   }
 
-  async function handleDeleteSitDown(
-    id: string,
-    onDelete: (id: string) => Promise<void>,
-  ) {
-    const confirmed = await confirmAlert('End this sit-down?', 'End this sit-down for everyone? All messages will be lost.');
+  async function handleLeaveSitDown(id: string, onLeave: (id: string) => Promise<void>) {
+    const confirmed = await confirmAlert(
+      'Leave this sit-down?',
+      'Walk away and the words stay behind. All messages will be lost.',
+    );
     if (!confirmed) return;
     try {
-      await onDelete(id);
+      await onLeave(id);
       if (pathname === `/sitdown/${id}`) router.replace('/');
-      toast.success('The sit-down is over.');
-    } catch {
-      toast.error("Couldn't end the sit-down.");
-    }
-  }
-
-  async function handleLeaveSitDown(id: string) {
-    const confirmed = await confirmAlert('Leave this sit-down?', 'Leave this sit-down? You can be re-invited later.');
-    if (!confirmed) return;
-    try {
-      await leaveCommissionSitDown(id);
-      if (pathname === `/sitdown/${id}`) router.replace('/');
-      toast.success("You've left the sit-down.");
+      toast.success("You've left the table.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't leave the sit-down.");
     }
   }
 
   function renderSitDownItem(
-    sd: { id: string; name: string; description?: string | null; created_by?: string; is_commission?: boolean; unread_count?: number },
+    sd: { id: string; name: string; description?: string | null; unread_count?: number },
     icon: React.ReactNode,
-    onDelete: (id: string) => Promise<void>,
+    onLeave: (id: string) => Promise<void>,
     onMarkRead?: (id: string) => void,
   ) {
     const isActive = pathname === `/sitdown/${sd.id}`;
-    const isCommission = sd.is_commission === true;
-    const isAdmin = !isCommission || sd.created_by === profile?.id;
     const unread = sd.unread_count ?? 0;
 
     return (
@@ -224,31 +210,17 @@ export function Sidebar(props: DrawerContentComponentProps) {
             </Pressable>
           }
         >
-          {isCommission && !isAdmin ? (
-            <Pressable
-              onPress={() => {
-                setMenuOpen(null);
-                handleLeaveSitDown(sd.id);
-              }}
-              className="flex-row items-center gap-2 px-3 py-1.5"
-              style={{ width: 144 }}
-            >
-              <LogOut size={14} color="#f59e0b" />
-              <Text className="text-sm text-amber-500">Leave</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => {
-                setMenuOpen(null);
-                handleDeleteSitDown(sd.id, onDelete);
-              }}
-              className="flex-row items-center gap-2 px-3 py-1.5"
-              style={{ width: 144 }}
-            >
-              <Trash2 size={14} color="#f87171" />
-              <Text className="text-sm text-red-400">Delete</Text>
-            </Pressable>
-          )}
+          <Pressable
+            onPress={() => {
+              setMenuOpen(null);
+              handleLeaveSitDown(sd.id, onLeave);
+            }}
+            className="flex-row items-center gap-2 px-3 py-1.5"
+            style={{ width: 144 }}
+          >
+            <LogOut size={14} color="#f59e0b" />
+            <Text className="text-sm text-amber-500">Leave</Text>
+          </Pressable>
         </Dropdown>
       </View>
     );
@@ -334,7 +306,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
                 renderSitDownItem(
                   sd,
                   <MessageSquare size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />,
-                  deleteSitDown,
+                  leaveFamilySitDown,
                   markSitDownAsRead,
                 ),
               )}
@@ -365,7 +337,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
                   renderSitDownItem(
                     sd,
                     <Users size={16} color={pathname === `/sitdown/${sd.id}` ? '#d97706' : '#d6d3d1'} />,
-                    deleteCommissionSitDown,
+                    leaveCommissionSitDown,
                     markCommissionAsRead,
                   ),
                 )}
@@ -595,6 +567,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
       <CreateSitdownModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
+        onCreate={createSitDown}
         onCreated={(id) => {
           setShowCreate(false);
           closeDrawer();

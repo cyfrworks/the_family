@@ -20,6 +20,8 @@ export interface Profile {
   created_at: string;
 }
 
+export type MemberType = 'ai' | 'informant';
+
 export interface Member {
   id: string;
   owner_id: string;
@@ -28,6 +30,9 @@ export interface Member {
   system_prompt: string;
   avatar_url: string | null;
   created_at: string;
+  member_type?: MemberType;
+  token_prefix?: string;
+  last_used_at?: string | null;
   catalog_model?: CatalogModel;
 }
 

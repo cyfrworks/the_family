@@ -1,11 +1,10 @@
 import { View, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
 import { MessageSquare, Users, Shield, Crown, Settings } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCommissionContext } from '../../contexts/CommissionContext';
+import { useFamilySitDownContext } from '../../contexts/FamilySitDownContext';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import type { SitDown } from '../../lib/types';
 
 interface TabConfig {
   name: string;
@@ -18,30 +17,12 @@ interface TabConfig {
 export function MobileTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { isGodfather } = useAuth();
-  const { pendingInvites } = useCommissionContext();
-
-  // Read-only cache subscription for sit-down unread counts (no fetch, no realtime setup)
-  const { data: sitDowns = [] } = useQuery<SitDown[]>({
-    queryKey: ['sitDowns'],
-    queryFn: async () => [],
-    enabled: false,
-  });
-
-  // Read commission sit-down unread counts from cache
-  const { data: commissionData } = useQuery<{
-    contacts: unknown[];
-    pendingInvites: unknown[];
-    sentInvites: unknown[];
-    commissionSitDowns: SitDown[];
-  }>({
-    queryKey: ['commission', 'state'],
-    queryFn: async () => ({ contacts: [], pendingInvites: [], sentInvites: [], commissionSitDowns: [] }),
-    enabled: false,
-  });
+  const { pendingInvites, commissionSitDowns } = useCommissionContext();
+  const { sitDowns } = useFamilySitDownContext();
 
   const totalUnread =
     sitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0) +
-    (commissionData?.commissionSitDowns ?? []).reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
+    commissionSitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
 
   const tabs: TabConfig[] = [
     { name: '(sitdowns)', label: 'Sit-downs', icon: MessageSquare, badge: totalUnread },

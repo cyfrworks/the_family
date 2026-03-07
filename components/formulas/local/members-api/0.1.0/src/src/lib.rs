@@ -66,6 +66,29 @@ fn handle_request(input: &str) -> Result<String, String> {
                 .ok_or("Missing required 'member_id'")?;
             delete_member(access_token, member_id)
         }
+        "create_informant" => {
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'name'")?;
+            let avatar_url = parsed.get("avatar_url").and_then(|v| v.as_str());
+            create_informant(access_token, name, avatar_url)
+        }
+        "list_informants" => list_informants(access_token),
+        "delete_informant" => {
+            let member_id = parsed
+                .get("member_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'member_id'")?;
+            delete_informant(access_token, member_id)
+        }
+        "regenerate_token" => {
+            let member_id = parsed
+                .get("member_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'member_id'")?;
+            regenerate_token(access_token, member_id)
+        }
         _ => Err(format!("Unknown action: {action}")),
     }
 }
@@ -78,13 +101,15 @@ fn list_members(access_token: &str) -> Result<String, String> {
         .ok_or("Could not determine user ID from token")?;
 
     // Single query with PostgREST resource embedding — joins members with model_catalog
+    // Only return AI members (not informants)
     let members = supabase_call(
         "db.select",
         json!({
             "table": "members",
             "select": "*,catalog_model:model_catalog(*)",
             "filters": [
-                { "column": "owner_id", "op": "eq", "value": user_id }
+                { "column": "owner_id", "op": "eq", "value": user_id },
+                { "column": "member_type", "op": "eq", "value": "ai" }
             ],
             "order": [{ "column": "created_at", "direction": "desc" }],
             "access_token": access_token
@@ -341,6 +366,172 @@ fn delete_member(access_token: &str, member_id: &str) -> Result<String, String> 
     )?;
 
     Ok(json!({ "deleted": true }).to_string())
+}
+
+fn generate_token() -> Result<(String, String, String), String> {
+    // Generate token server-side using pgcrypto's gen_random_bytes (proper CSPRNG)
+    let token_data = supabase_call(
+        "db.rpc",
+        json!({
+            "function": "generate_informant_token",
+            "body": {},
+            "service_role": true
+        }),
+    )?;
+
+    let token = token_data
+        .get("token")
+        .and_then(|v| v.as_str())
+        .ok_or("Token generation failed: missing token")?
+        .to_string();
+    let prefix = token_data
+        .get("token_prefix")
+        .and_then(|v| v.as_str())
+        .ok_or("Token generation failed: missing prefix")?
+        .to_string();
+    let hash = token_data
+        .get("token_hash")
+        .and_then(|v| v.as_str())
+        .ok_or("Token generation failed: missing hash")?
+        .to_string();
+
+    Ok((token, prefix, hash))
+}
+
+fn create_informant(
+    access_token: &str,
+    name: &str,
+    avatar_url: Option<&str>,
+) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    if name.trim().is_empty() {
+        return Err("Informant name cannot be empty".to_string());
+    }
+
+    let (token, prefix, hash) = generate_token()?;
+
+    let mut body = json!({
+        "owner_id": user_id,
+        "name": name,
+        "member_type": "informant",
+        "token_hash": hash,
+        "token_prefix": prefix,
+        "system_prompt": "",
+    });
+
+    if let Some(url) = avatar_url {
+        body["avatar_url"] = json!(url);
+    }
+
+    let inserted = supabase_call(
+        "db.insert",
+        json!({
+            "table": "members",
+            "body": body,
+            "access_token": access_token
+        }),
+    )?;
+
+    let created = inserted
+        .as_array()
+        .and_then(|arr| arr.first())
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    // Return the plaintext token (shown once) plus the member object
+    // Strip sensitive fields from the response
+    let mut member = created;
+    if let Some(obj) = member.as_object_mut() {
+        obj.remove("token_hash");
+    }
+
+    Ok(json!({ "informant": member, "token": token }).to_string())
+}
+
+fn list_informants(access_token: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    let informants = supabase_call(
+        "db.select",
+        json!({
+            "table": "members",
+            "select": "id,owner_id,name,avatar_url,token_prefix,last_used_at,member_type,created_at",
+            "filters": [
+                { "column": "owner_id", "op": "eq", "value": user_id },
+                { "column": "member_type", "op": "eq", "value": "informant" }
+            ],
+            "order": [{ "column": "created_at", "direction": "desc" }],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "informants": informants }).to_string())
+}
+
+fn delete_informant(access_token: &str, member_id: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    supabase_call(
+        "db.delete",
+        json!({
+            "table": "members",
+            "filters": [
+                { "column": "id", "op": "eq", "value": member_id },
+                { "column": "owner_id", "op": "eq", "value": user_id },
+                { "column": "member_type", "op": "eq", "value": "informant" }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "deleted": true }).to_string())
+}
+
+fn regenerate_token(access_token: &str, member_id: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    let (token, prefix, hash) = generate_token()?;
+
+    let updated = supabase_call(
+        "db.update",
+        json!({
+            "table": "members",
+            "body": {
+                "token_hash": hash,
+                "token_prefix": prefix
+            },
+            "filters": [
+                { "column": "id", "op": "eq", "value": member_id },
+                { "column": "owner_id", "op": "eq", "value": user_id },
+                { "column": "member_type", "op": "eq", "value": "informant" }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    let rows = updated.as_array().map(|a| a.len()).unwrap_or(0);
+    if rows == 0 {
+        return Err("Informant not found or not owned by you".to_string());
+    }
+
+    Ok(json!({ "token": token, "token_prefix": prefix }).to_string())
 }
 
 /// Check if a user tier has access to a model requiring min_tier.

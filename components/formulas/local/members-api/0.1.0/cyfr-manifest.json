@@ -18,7 +18,7 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["list", "create", "update", "delete"],
+          "enum": ["list", "create", "update", "delete", "create_informant", "list_informants", "delete_informant", "regenerate_token"],
           "description": "The member operation to perform"
         },
         "access_token": {

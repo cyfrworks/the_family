@@ -1,0 +1,83 @@
+{
+  "name": "informant-api",
+  "type": "formula",
+  "version": "0.1.0",
+  "publisher": "local",
+  "description": "External data pipeline API for informant members",
+  "setup": {
+    "policy": {
+      "timeout": "30s",
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880,
+      "allowed_tools": ["execution.run"]
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["token", "action"],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "Informant token (inf_...)"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["send_message", "create_sit_down", "list_sit_downs"],
+          "description": "The informant operation to perform"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "Target sit-down ID (required for send_message)"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message content (required for send_message)"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional metadata for the message"
+        },
+        "name": {
+          "type": "string",
+          "description": "Sit-down name (required for create_sit_down)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Sit-down description (optional for create_sit_down)"
+        }
+      }
+    },
+    "output": {
+      "type": "object"
+    }
+  },
+  "dependencies": {
+    "static": [
+      {
+        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "reason": "Database operations: token validation, message insert, sit-down creation"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Send message",
+      "input": {
+        "token": "inf_a8f3...",
+        "action": "send_message",
+        "sit_down_id": "uuid",
+        "content": "AAPL breakout at $195"
+      }
+    },
+    {
+      "name": "Create sit-down",
+      "input": {
+        "token": "inf_a8f3...",
+        "action": "create_sit_down",
+        "name": "Market Alerts"
+      }
+    }
+  ]
+}

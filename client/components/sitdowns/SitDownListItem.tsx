@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
-import { MoreVertical, Trash2, LogOut, Info } from 'lucide-react-native';
+import { MoreVertical, LogOut, Info, Copy } from 'lucide-react-native';
 import { Dropdown } from '../ui/Dropdown';
-import { useAuth } from '../../contexts/AuthContext';
+import * as Clipboard from 'expo-clipboard';
 import { toast } from '../../lib/toast';
 import { confirmAlert } from '../../lib/alert';
 import type { SitDown } from '../../lib/types';
@@ -35,8 +35,7 @@ interface SitDownListItemProps {
   sitDown: SitDown;
   icon: React.ReactNode;
   onPress?: () => void;
-  onDelete: (id: string) => Promise<void>;
-  onLeave?: (id: string) => Promise<void>;
+  onLeave: (id: string) => Promise<void>;
   onMarkRead?: (id: string) => void;
   variant?: 'sidebar' | 'tab';
 }
@@ -45,19 +44,15 @@ export function SitDownListItem({
   sitDown,
   icon,
   onPress,
-  onDelete,
   onLeave,
   onMarkRead,
   variant = 'sidebar',
 }: SitDownListItemProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { profile } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isActive = pathname === `/sitdown/${sitDown.id}`;
-  const isCommission = sitDown.is_commission === true;
-  const isAdmin = !isCommission || sitDown.created_by === profile?.id;
   const unread = sitDown.unread_count ?? 0;
 
   function handlePress() {
@@ -70,28 +65,17 @@ export function SitDownListItem({
     }
   }
 
-  async function handleDelete() {
-    setMenuOpen(false);
-    const confirmed = await confirmAlert('End this sit-down?', 'End this sit-down for everyone? All messages will be lost.');
-    if (!confirmed) return;
-    try {
-      await onDelete(sitDown.id);
-      if (pathname === `/sitdown/${sitDown.id}`) router.replace('/');
-      toast.success('The sit-down is over.');
-    } catch {
-      toast.error("Couldn't end the sit-down.");
-    }
-  }
-
   async function handleLeave() {
     setMenuOpen(false);
-    if (!onLeave) return;
-    const confirmed = await confirmAlert('Leave this sit-down?', 'Leave this sit-down? You can be re-invited later.');
+    const confirmed = await confirmAlert(
+      'Leave this sit-down?',
+      'Walk away and the words stay behind. All messages will be lost.',
+    );
     if (!confirmed) return;
     try {
       await onLeave(sitDown.id);
       if (pathname === `/sitdown/${sitDown.id}`) router.replace('/');
-      toast.success("You've left the sit-down.");
+      toast.success("You've left the table.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't leave the sit-down.");
     }
@@ -138,25 +122,26 @@ export function SitDownListItem({
           </Pressable>
         }
       >
-        {isCommission && !isAdmin && onLeave ? (
-          <Pressable
-            onPress={handleLeave}
-            className="flex-row items-center gap-2 px-3 py-1.5"
-            style={{ width: 144 }}
-          >
-            <LogOut size={14} color="#f59e0b" />
-            <Text className="text-sm text-amber-500">Leave</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={handleDelete}
-            className="flex-row items-center gap-2 px-3 py-1.5"
-            style={{ width: 144 }}
-          >
-            <Trash2 size={14} color="#f87171" />
-            <Text className="text-sm text-red-400">Delete</Text>
-          </Pressable>
-        )}
+        <Pressable
+          onPress={async () => {
+            setMenuOpen(false);
+            await Clipboard.setStringAsync(sitDown.id);
+            toast.success('Sit-down ID copied.');
+          }}
+          className="flex-row items-center gap-2 px-3 py-1.5"
+          style={{ width: 144 }}
+        >
+          <Copy size={14} color="#a8a29e" />
+          <Text className="text-sm text-stone-300">Copy ID</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleLeave}
+          className="flex-row items-center gap-2 px-3 py-1.5"
+          style={{ width: 144 }}
+        >
+          <LogOut size={14} color="#f59e0b" />
+          <Text className="text-sm text-amber-500">Leave</Text>
+        </Pressable>
       </Dropdown>
     </View>
   );

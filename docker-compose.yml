@@ -12,6 +12,26 @@ services:
       - .env
 
   # ════════════════════════════════════════════
+  # Informant REST proxy
+  # ════════════════════════════════════════════
+
+  inform-proxy:
+    container_name: inform-proxy
+    profiles: [caddy]
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./inform-proxy.js:/app/inform-proxy.js:ro
+    env_file:
+      - .env
+    environment:
+      CYFR_URL: http://cyfr:4000/mcp
+    command: node inform-proxy.js
+    depends_on:
+      cyfr:
+        condition: service_started
+
+  # ════════════════════════════════════════════
   # Web + Caddy — Production (profile: caddy)
   # Enable with COMPOSE_PROFILES=caddy in .env
   # ════════════════════════════════════════════
@@ -52,6 +72,8 @@ services:
         condition: service_started
       web:
         condition: service_completed_successfully
+      inform-proxy:
+        condition: service_started
 
 volumes:
   web-dist:

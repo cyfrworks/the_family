@@ -69,9 +69,9 @@ fn handle_request(input: &str) -> Result<String, String> {
             let description = parsed.get("description").and_then(|v| v.as_str());
             create_sit_down(access_token, name, description)
         }
-        "delete" => {
+        "delete" | "delete_commission" | "leave_commission" | "leave" => {
             let sit_down_id = require_sit_down_id(&parsed)?;
-            delete_sit_down(access_token, sit_down_id)
+            leave_sit_down(access_token, sit_down_id)
         }
         "create_commission" => {
             let name = parsed
@@ -98,14 +98,6 @@ fn handle_request(input: &str) -> Result<String, String> {
                 })
                 .unwrap_or_default();
             create_commission_sit_down(access_token, name, description, &member_ids, &contact_ids)
-        }
-        "delete_commission" => {
-            let sit_down_id = require_sit_down_id(&parsed)?;
-            delete_commission_sit_down(access_token, sit_down_id)
-        }
-        "leave_commission" => {
-            let sit_down_id = require_sit_down_id(&parsed)?;
-            leave_commission_sit_down(access_token, sit_down_id)
         }
         "toggle_admin" => {
             let sit_down_id = require_sit_down_id(&parsed)?;
@@ -246,52 +238,30 @@ fn create_sit_down(
     Ok(json!({ "sit_down": sit_down }).to_string())
 }
 
-fn delete_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
+fn leave_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
     let user = fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Could not determine user ID from token")?;
 
-    let sit_downs = supabase_call(
-        "db.select",
-        json!({
-            "table": "sit_downs",
-            "select": "id,created_by",
-            "filters": [
-                { "column": "id", "op": "eq", "value": sit_down_id }
-            ],
-            "limit": 1,
-            "access_token": access_token
-        }),
-    )?;
-
-    let sit_down = sit_downs
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("Sit-down not found")?;
-
-    let created_by = sit_down
-        .get("created_by")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if created_by != user_id {
-        return Err("Only the creator can delete a sit-down".to_string());
-    }
-
+    // Delete caller's participant row — triggers handle the rest:
+    // - trg_cascade_owned_members removes their owned members
+    // - trg_transfer_admin promotes next Don if caller was admin
+    // - trg_delete_empty_sit_down deletes sit-down when no Dons remain
     supabase_call_once(
         "db.delete",
         json!({
-            "table": "sit_downs",
+            "table": "sit_down_participants",
             "filters": [
-                { "column": "id", "op": "eq", "value": sit_down_id }
+                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
+                { "column": "user_id", "op": "eq", "value": user_id }
             ],
             "access_token": access_token
         }),
     )?;
 
-    Ok(json!({ "deleted": true }).to_string())
+    Ok(json!({ "left": true }).to_string())
 }
 
 fn create_commission_sit_down(
@@ -322,135 +292,6 @@ fn create_commission_sit_down(
     )?;
 
     Ok(json!({ "sit_down": sit_down }).to_string())
-}
-
-fn delete_commission_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
-    let user = fetch_user(access_token)?;
-    let user_id = user
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or("Could not determine user ID from token")?;
-
-    // Check caller is an admin participant
-    let participants = supabase_call(
-        "db.select",
-        json!({
-            "table": "sit_down_participants",
-            "select": "id,is_admin",
-            "filters": [
-                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
-                { "column": "user_id", "op": "eq", "value": user_id }
-            ],
-            "limit": 1,
-            "access_token": access_token
-        }),
-    )?;
-
-    let participant = participants
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("You are not a participant in this sit-down")?;
-
-    let is_admin = participant
-        .get("is_admin")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    if !is_admin {
-        return Err("Only admins can delete a commission sit-down".to_string());
-    }
-
-    supabase_call_once(
-        "db.delete",
-        json!({
-            "table": "sit_downs",
-            "filters": [
-                { "column": "id", "op": "eq", "value": sit_down_id }
-            ],
-            "access_token": access_token
-        }),
-    )?;
-
-    Ok(json!({ "deleted": true }).to_string())
-}
-
-fn leave_commission_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, String> {
-    let user = fetch_user(access_token)?;
-    let user_id = user
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or("Could not determine user ID from token")?;
-
-    // Find caller's participant row
-    let participants = supabase_call(
-        "db.select",
-        json!({
-            "table": "sit_down_participants",
-            "select": "id,is_admin",
-            "filters": [
-                { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
-                { "column": "user_id", "op": "eq", "value": user_id }
-            ],
-            "limit": 1,
-            "access_token": access_token
-        }),
-    )?;
-
-    let participant = participants
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("You are not a participant in this sit-down")?;
-
-    let participant_id = participant
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or("Could not determine participant ID")?;
-
-    let is_admin = participant
-        .get("is_admin")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    // If admin, check there's at least one other admin
-    if is_admin {
-        let other_admins = supabase_call(
-            "db.select",
-            json!({
-                "table": "sit_down_participants",
-                "select": "id",
-                "filters": [
-                    { "column": "sit_down_id", "op": "eq", "value": sit_down_id },
-                    { "column": "is_admin", "op": "eq", "value": "true" },
-                    { "column": "user_id", "op": "neq", "value": user_id }
-                ],
-                "limit": 1,
-                "access_token": access_token
-            }),
-        )?;
-
-        let count = other_admins
-            .as_array()
-            .map(|arr| arr.len())
-            .unwrap_or(0);
-
-        if count == 0 {
-            return Err("You're the last admin \u{2014} delete the sit-down instead".to_string());
-        }
-    }
-
-    // Delete the participant row
-    supabase_call_once(
-        "db.delete",
-        json!({
-            "table": "sit_down_participants",
-            "filters": [
-                { "column": "id", "op": "eq", "value": participant_id }
-            ],
-            "access_token": access_token
-        }),
-    )?;
-
-    Ok(json!({ "left": true }).to_string())
 }
 
 fn toggle_admin(access_token: &str, sit_down_id: &str, target_user_id: &str) -> Result<String, String> {
@@ -942,12 +783,16 @@ fn send_message(
         return Err("Not a participant of this sit-down".to_string());
     }
 
-    // Extract member list for mention parsing
+    // Extract member list for mention parsing (exclude informants — they are data-only)
     let members: Vec<Value> = participants_arr
         .iter()
         .filter_map(|p| {
             let m = p.get("member")?;
             if m.is_null() {
+                return None;
+            }
+            let member_type = m.get("member_type").and_then(|v| v.as_str()).unwrap_or("ai");
+            if member_type == "informant" {
                 return None;
             }
             Some(json!({

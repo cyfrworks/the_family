@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Member } from '../lib/types';
 import { getMentionCandidates, getMentionText } from '../lib/mention-parser';
 
@@ -19,6 +19,8 @@ const INITIAL_STATE: MentionState = {
 };
 
 export function useMention(members: Member[], memberOwnerMap?: Map<string, string>) {
+  // Filter out informants — they are push-only data sources, not mentionable
+  const mentionableMembers = useMemo(() => members.filter((m) => m.member_type !== 'informant'), [members]);
   const [state, setState] = useState<MentionState>(INITIAL_STATE);
 
   const handleInput = useCallback(
@@ -38,7 +40,7 @@ export function useMention(members: Member[], memberOwnerMap?: Map<string, strin
       }
 
       const candidates = [
-        ...getMentionCandidates(query, members),
+        ...getMentionCandidates(query, mentionableMembers),
         ...(query === '' || 'all'.startsWith(query.toLowerCase())
           ? [{ id: 'all', name: 'All Members', catalog_model_id: '', system_prompt: '', owner_id: '', avatar_url: null, created_at: '' } as Member]
           : []),
@@ -57,7 +59,7 @@ export function useMention(members: Member[], memberOwnerMap?: Map<string, strin
         triggerPosition: atIndex,
       });
     },
-    [members]
+    [mentionableMembers]
   );
 
   const selectCandidate = useCallback(
