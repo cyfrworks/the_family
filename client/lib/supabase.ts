@@ -13,7 +13,23 @@ export async function hydrateTokens() {
     _accessToken = await SecureStore.getItemAsync('sb_access_token');
     _refreshToken = await SecureStore.getItemAsync('sb_refresh_token');
   }
+  if (_accessToken && _refreshToken) {
+    await getSupabase().auth.setSession({ access_token: _accessToken, refresh_token: _refreshToken });
+  }
   if (_accessToken) setRealtimeAuth(_accessToken);
+}
+
+export function initAuthListener() {
+  const { data } = getSupabase().auth.onAuthStateChange((event, session) => {
+    if (event === 'TOKEN_REFRESHED' && session) {
+      setAccessToken(session.access_token);
+      setRefreshToken(session.refresh_token);
+    } else if (event === 'SIGNED_OUT') {
+      setAccessToken(null);
+      setRefreshToken(null);
+    }
+  });
+  return data.subscription;
 }
 
 export function setAccessToken(token: string | null) {

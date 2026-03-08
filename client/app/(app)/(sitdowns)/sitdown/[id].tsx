@@ -40,6 +40,7 @@ export default function SitdownScreen() {
     messages,
     typingIndicators,
     lastReadAt,
+    dividerLastReadAt,
     enteredAt,
     loading,
     sitDownError,
@@ -252,7 +253,7 @@ export default function SitdownScreen() {
           memberOwnerMap={memberOwnerMap}
           messages={messages}
           typingIndicators={typingIndicators}
-          lastReadAt={lastReadAt}
+          lastReadAt={dividerLastReadAt}
           enteredAt={enteredAt}
           messagesError={messagesError}
           onClearMessagesError={clearMessagesError}

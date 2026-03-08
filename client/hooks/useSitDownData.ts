@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
@@ -99,6 +99,7 @@ export function useSitDownData(sitDownId: string | undefined) {
   const { user } = useAuth();
   const [typingIndicators, setTypingIndicators] = useState<RemoteTypingIndicator[]>([]);
   const [enteredAt, setEnteredAt] = useState<string | null>(null);
+  const dividerLastReadAtRef = useRef<string | null>(null);
 
   // ---- Combined enter query: sit-down + participants + messages + read receipt ----
   const enterQuery = useQuery<EnterSitDownData, Error>({
@@ -189,6 +190,7 @@ export function useSitDownData(sitDownId: string | undefined) {
     }
     return () => {
       setActiveSitDown(null);
+      dividerLastReadAtRef.current = null;
       // Update cached last_read_at so re-entry doesn't show a stale unread divider
       if (sitDownId) {
         queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
@@ -208,6 +210,13 @@ export function useSitDownData(sitDownId: string | undefined) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
+
+  // Freeze last_read_at for the "New messages" divider — capture once on first load
+  useEffect(() => {
+    if (enterQuery.data && dividerLastReadAtRef.current === null) {
+      dividerLastReadAtRef.current = enterQuery.data.last_read_at;
+    }
+  }, [enterQuery.data]);
 
   // ---- Mark read: done by the enter RPC, but update sidebar cache ----
   useEffect(() => {
@@ -536,6 +545,7 @@ export function useSitDownData(sitDownId: string | undefined) {
     messages,
     typingIndicators,
     lastReadAt,
+    dividerLastReadAt: dividerLastReadAtRef.current,
     enteredAt,
     loading,
     sitDownError,

@@ -297,7 +297,7 @@ export function ChatView({
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           inverted
-          extraData={allTyping}
+          extraData={[allTyping, firstUnreadIndex]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           ListHeaderComponent={renderListHeader}

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { cyfrCall, CyfrError } from '../lib/cyfr';
-import { auth, getAccessToken } from '../lib/supabase';
+import { getAccessToken } from '../lib/supabase';
 
 interface SendMessageResult {
   message_id: string;
@@ -16,8 +16,7 @@ export function useSendMessage(sitDownId: string | undefined) {
     async (content: string, replyToId?: string): Promise<SendMessageResult | null> => {
       if (!sitDownId) return null;
 
-      const refreshed = await auth.refresh();
-      const accessToken = refreshed?.access_token || getAccessToken();
+      const accessToken = getAccessToken();
       if (!accessToken) return null;
 
       setError(null);

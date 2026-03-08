@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
-import { auth, getAccessToken, setAccessToken, hydrateTokens } from '../lib/supabase';
+import { auth, getAccessToken, setAccessToken, hydrateTokens, initAuthListener } from '../lib/supabase';
 import { clearRealtime } from '../lib/realtime';
 import { cyfrCall } from '../lib/cyfr';
 import type { Profile, UserTier } from '../lib/types';
@@ -40,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       await hydrateTokens();
+      initAuthListener();
 
       const token = getAccessToken();
       if (!token) {
@@ -68,54 +69,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshingRef = useRef(false);
-  const failCountRef = useRef(0);
 
   useEffect(() => {
     if (!user) return;
 
-    async function refreshSession() {
-      if (refreshingRef.current) return;
+    const subscription = AppState.addEventListener('change', async (nextState) => {
+      if (nextState !== 'active' || refreshingRef.current) return;
       refreshingRef.current = true;
       try {
         const result = await auth.refresh();
-        if (result) {
-          failCountRef.current = 0;
-        } else if (!getAccessToken()) {
+        if (!result && !getAccessToken()) {
           clearRealtime();
-          setUser(null);
-          setProfile(null);
-        } else {
-          failCountRef.current += 1;
-          if (failCountRef.current >= 3) {
-            clearRealtime();
-            await auth.signOut();
-            setUser(null);
-            setProfile(null);
-          }
-        }
-      } catch {
-        failCountRef.current += 1;
-        if (failCountRef.current >= 3) {
-          clearRealtime();
-          await auth.signOut();
           setUser(null);
           setProfile(null);
         }
+      } catch {
+        // Supabase auto-refresh will handle it
       } finally {
         refreshingRef.current = false;
       }
-    }
-
-    const interval = setInterval(refreshSession, 50 * 60 * 1000);
-
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') refreshSession();
     });
 
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
+    return () => subscription.remove();
   }, [user]);
 
   async function fetchProfile() {

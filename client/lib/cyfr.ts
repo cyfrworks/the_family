@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
+import { auth, getAccessToken } from './supabase';
 
-// Web: use relative /cyfr path (proxied by Metro dev server or Caddy in prod, avoids CORS)
-// Native: use direct URL (no CORS restrictions on native)
 function getCyfrUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_CYFR_URL;
   if (Platform.OS === 'web') {
@@ -25,6 +24,12 @@ function isRetryable(err: unknown): boolean {
     return err.code === -33100 || err.code === -1;
   }
   return false;
+}
+
+function isAuthError(err: unknown): boolean {
+  if (!(err instanceof CyfrError)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('bad_jwt') || msg.includes('token is expired') || msg.includes('invalid jwt') || err.code === 403;
 }
 
 async function cyfrCallOnce(toolName: string, args: Record<string, unknown>): Promise<unknown> {
@@ -91,6 +96,16 @@ export async function cyfrCall(toolName: string, args: Record<string, unknown>):
   try {
     return await cyfrCallOnce(toolName, args);
   } catch (err) {
+    if (isAuthError(err)) {
+      const refreshed = await auth.refresh();
+      if (refreshed) {
+        const input = args.input as Record<string, unknown> | undefined;
+        if (input && 'access_token' in input) {
+          input.access_token = getAccessToken();
+        }
+        return cyfrCallOnce(toolName, args);
+      }
+    }
     if (isRetryable(err)) {
       await new Promise((r) => setTimeout(r, 1000));
       return cyfrCallOnce(toolName, args);

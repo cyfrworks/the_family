@@ -1,0 +1,126 @@
+{
+  "name": "notion",
+  "type": "catalyst",
+  "version": "0.1.0",
+  "publisher": "local",
+  "description": "Notion API SDK -- pages, databases, blocks, users, search, and comments",
+  "wasi": { "http": true, "secrets": true, "streaming": false },
+  "setup": {
+    "secrets": [
+      {
+        "name": "NOTION_API_KEY",
+        "description": "Integration token from https://www.notion.so/my-integrations",
+        "required": true
+      }
+    ],
+    "policy": {
+      "allowed_domains": ["api.notion.com"],
+      "allowed_methods": ["GET", "POST", "PATCH", "DELETE"],
+      "max_memory_bytes": 67108864,
+      "max_request_size": 1048576,
+      "max_response_size": 5242880,
+      "rate_limit": { "requests": 100, "window": "1m" },
+      "timeout": "2m"
+    }
+  },
+  "defaults": {
+    "base_url": "https://api.notion.com",
+    "api_version": "2022-06-28"
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["operation"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "pages.get",
+            "pages.create",
+            "pages.update",
+            "pages.get_property",
+            "blocks.get",
+            "blocks.update",
+            "blocks.delete",
+            "blocks.get_children",
+            "blocks.append_children",
+            "databases.get",
+            "databases.query",
+            "databases.create",
+            "databases.update",
+            "users.get",
+            "users.list",
+            "users.me",
+            "search",
+            "comments.create",
+            "comments.list"
+          ]
+        },
+        "params": {
+          "type": "object",
+          "description": "Operation-specific parameters"
+        }
+      }
+    },
+    "output": { "type": "object" }
+  },
+  "examples": [
+    {
+      "name": "Get a page",
+      "description": "Retrieve a page by ID",
+      "input": { "operation": "pages.get", "params": { "page_id": "<page-id>" } },
+      "output": { "status": 200, "data": { "object": "page", "id": "<page-id>" } }
+    },
+    {
+      "name": "Create a page",
+      "description": "Create a new page inside a parent page or database",
+      "input": {
+        "operation": "pages.create",
+        "params": {
+          "parent": { "page_id": "<parent-id>" },
+          "properties": { "title": { "title": [{ "text": { "content": "Hello from CYFR!" } }] } }
+        }
+      },
+      "output": { "status": 200, "data": { "object": "page", "id": "<new-page-id>" } }
+    },
+    {
+      "name": "Query a database",
+      "description": "Query a database with optional filters and sorts",
+      "input": {
+        "operation": "databases.query",
+        "params": {
+          "database_id": "<db-id>",
+          "filter": { "property": "Status", "select": { "equals": "Done" } },
+          "page_size": 10
+        }
+      },
+      "output": { "status": 200, "data": { "object": "list", "results": [] } }
+    },
+    {
+      "name": "Append block children",
+      "description": "Append new blocks to a page or block",
+      "input": {
+        "operation": "blocks.append_children",
+        "params": {
+          "block_id": "<page-or-block-id>",
+          "children": [{ "object": "block", "type": "paragraph", "paragraph": { "rich_text": [{ "text": { "content": "Hello!\" } }] } }]
+        }
+      },
+      "output": { "status": 200, "data": { "object": "list", "results": [] } }
+    },
+    {
+      "name": "Search",
+      "description": "Search all pages and databases shared with the integration",
+      "input": {
+        "operation": "search",
+        "params": { "query": "My project", "page_size": 10 }
+      },
+      "output": { "status": 200, "data": { "object": "list", "results": [] } }
+    },
+    {
+      "name": "List users",
+      "description": "List all users in the workspace",
+      "input": { "operation": "users.list", "params": {} },
+      "output": { "status": 200, "data": { "object": "list", "results": [] } }
+    }
+  ]
+}
