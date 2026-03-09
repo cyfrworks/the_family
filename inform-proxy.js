@@ -68,7 +68,12 @@ const server = http.createServer((req, res) => {
         body: JSON.stringify(mcp),
       });
 
-      const data = await upstream.json();
+      // CYFR runtime over-escapes some characters (e.g. ! → \!) in the MCP
+      // response text field, producing invalid JSON.  Read raw text and fix
+      // invalid escape sequences before parsing.
+      const rawText = await upstream.text();
+      const sanitized = rawText.replace(/\\([^"\\\/bfnrtu])/g, '$1');
+      const data = JSON.parse(sanitized);
       const text = data.result?.content?.[0]?.text;
 
       if (data.error || data.result?.isError) {
@@ -79,7 +84,8 @@ const server = http.createServer((req, res) => {
         let result = text || '{}';
         let parsed;
         try {
-          parsed = JSON.parse(result);
+          const cleanResult = result.replace(/\\([^"\\\/bfnrtu])/g, '$1');
+          parsed = JSON.parse(cleanResult);
           if (parsed.status === 'completed' && parsed.result !== undefined) {
             parsed = parsed.result;
             result = JSON.stringify(parsed);
