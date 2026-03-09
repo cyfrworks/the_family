@@ -25,6 +25,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ version: 2, fix: 'escape-sanitize' }));
+    return;
+  }
+
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'POST only' }));
@@ -68,12 +74,27 @@ const server = http.createServer((req, res) => {
         body: JSON.stringify(mcp),
       });
 
-      // CYFR runtime over-escapes some characters (e.g. ! → \!) in the MCP
-      // response text field, producing invalid JSON.  Read raw text and fix
-      // invalid escape sequences before parsing.
       const rawText = await upstream.text();
-      const sanitized = rawText.replace(/\\([^"\\\/bfnrtu])/g, '$1');
-      const data = JSON.parse(sanitized);
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        // Diagnostic: show the raw bytes around the error position
+        const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0');
+        const snippet = rawText.substring(Math.max(0, pos - 30), pos + 30);
+        const codes = [];
+        for (let i = Math.max(0, pos - 5); i < Math.min(rawText.length, pos + 5); i++) {
+          codes.push({ i, char: rawText[i], code: rawText.charCodeAt(i) });
+        }
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: parseErr.message,
+          debug: { position: pos, snippet, chars: codes, responseLength: rawText.length }
+        }));
+        return;
+      }
+
       const text = data.result?.content?.[0]?.text;
 
       if (data.error || data.result?.isError) {
@@ -84,8 +105,7 @@ const server = http.createServer((req, res) => {
         let result = text || '{}';
         let parsed;
         try {
-          const cleanResult = result.replace(/\\([^"\\\/bfnrtu])/g, '$1');
-          parsed = JSON.parse(cleanResult);
+          parsed = JSON.parse(result);
           if (parsed.status === 'completed' && parsed.result !== undefined) {
             parsed = parsed.result;
             result = JSON.stringify(parsed);
