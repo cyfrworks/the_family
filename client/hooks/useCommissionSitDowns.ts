@@ -3,14 +3,11 @@ import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
 import type { SitDown } from '../lib/types';
 import { useCommissionContext, type CommissionData } from '../contexts/CommissionContext';
-import { broadcastLeave } from '../lib/realtime-hub';
-import { useAuth } from '../contexts/AuthContext';
 
 const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
 
 export function useCommissionSitDowns() {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
   const { commissionSitDowns: sitDowns, loading, refetch, markSitDownAsRead } = useCommissionContext();
 
   async function createCommissionSitDown(
@@ -68,8 +65,6 @@ export function useCommissionSitDowns() {
       if (!old) return old;
       return { ...old, commissionSitDowns: old.commissionSitDowns.filter((sd) => sd.id !== id) };
     });
-
-    if (user?.id) broadcastLeave(user.id, id);
   }
 
   return { sitDowns, loading, createCommissionSitDown, leaveSitDown, markAsRead: markSitDownAsRead, refetch };

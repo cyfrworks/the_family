@@ -1,10 +1,12 @@
 {
   "name": "members-api",
   "type": "formula",
+  "publisher": "local",
   "version": "0.1.0",
   "description": "Member CRUD with server-side joins to model_catalog, input validation, and tier-based model access checks",
   "setup": {
     "policy": {
+      "allowed_tools": ["execution.run"],
       "timeout": "30s",
       "max_memory_bytes": 67108864,
       "max_request_size": 1048576,
@@ -18,7 +20,7 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["list", "create", "update", "delete", "create_informant", "list_informants", "delete_informant", "regenerate_token"],
+          "enum": ["list", "create", "update", "delete", "list_crew", "create_informant", "list_informants", "delete_informant", "regenerate_token"],
           "description": "The member operation to perform"
         },
         "access_token": {
@@ -70,7 +72,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.3.1",
         "reason": "Database operations: member CRUD, model catalog lookup, profile tier check"
       }
     ]

@@ -122,3 +122,154 @@ export class CyfrError extends Error {
     this.code = code;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Streaming (SSE) support for execution events
+// ---------------------------------------------------------------------------
+
+function getCyfrBaseUrl(): string {
+  if (Platform.OS === 'web') return '';
+  const envUrl = process.env.EXPO_PUBLIC_CYFR_URL;
+  if (envUrl && envUrl.startsWith('http')) {
+    try { return new URL(envUrl).origin; } catch { /* fall through */ }
+  }
+  return 'http://localhost:4000';
+}
+
+export interface CyfrStreamHandlers {
+  onEmit?: (data: Record<string, unknown>) => void;
+  onComplete?: (data: Record<string, unknown>) => void;
+  onError?: (error: Error) => void;
+}
+
+/**
+ * Start a streaming execution via `run_stream` and connect to the SSE event stream.
+ * Returns a cleanup function to close the connection.
+ */
+export async function cyfrCallStream(
+  toolName: string,
+  args: Record<string, unknown>,
+  handlers: CyfrStreamHandlers,
+): Promise<() => void> {
+  // 1. Start streaming execution via MCP (returns immediately with execution_id)
+  const streamArgs = { ...args, action: 'run_stream' };
+  const result = (await cyfrCallOnce(toolName, streamArgs)) as Record<string, unknown>;
+
+  const streamUrl = result.stream_url as string | undefined;
+  if (!streamUrl) {
+    throw new CyfrError(-1, 'No stream_url in run_stream response');
+  }
+
+  // 2. Build full SSE URL
+  const fullUrl = `${getCyfrBaseUrl()}${streamUrl}`;
+
+  // 3. Connect via fetch (not EventSource — CYFR rejects Accept: text/event-stream)
+  const controller = new AbortController();
+
+  consumeSSE(fullUrl, controller.signal, handlers).catch(() => {
+    // Stream ended or failed — already handled by consumeSSE
+  });
+
+  return () => controller.abort();
+}
+
+/**
+ * Consume an SSE stream using fetch + ReadableStream.
+ * CYFR rejects EventSource's mandatory `Accept: text/event-stream` header with 406,
+ * so we use plain fetch which doesn't set that header.
+ */
+function parseSSEChunk(
+  chunk: string,
+  state: { buffer: string; currentEvent: string; currentData: string },
+  handlers: CyfrStreamHandlers,
+) {
+  state.buffer += chunk;
+  const lines = state.buffer.split('\n');
+  state.buffer = lines.pop() ?? '';
+
+  for (const line of lines) {
+    if (line === '') {
+      // Empty line = event boundary — dispatch
+      if (state.currentData) {
+        const eventName = state.currentEvent || 'message';
+        try {
+          const parsed = JSON.parse(state.currentData);
+          if (eventName === 'emit') handlers.onEmit?.(parsed);
+          else if (eventName === 'complete') handlers.onComplete?.(parsed);
+          else if (eventName === 'error') handlers.onError?.(new CyfrError(-1, parsed.message ?? 'Stream error'));
+        } catch { /* non-JSON — ignore */ }
+      }
+      state.currentEvent = '';
+      state.currentData = '';
+    } else if (line.startsWith('event:')) {
+      state.currentEvent = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      state.currentData += (state.currentData ? '\n' : '') + line.slice(5).trim();
+    }
+  }
+}
+
+async function consumeSSE(
+  url: string,
+  signal: AbortSignal,
+  handlers: CyfrStreamHandlers,
+): Promise<void> {
+  // Try fetch + ReadableStream first (works on web)
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) {
+      handlers.onError?.(new Error(`SSE connect failed: ${res.status}`));
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (reader) {
+      const decoder = new TextDecoder();
+      const state = { buffer: '', currentEvent: '', currentData: '' };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parseSSEChunk(decoder.decode(value, { stream: true }), state, handlers);
+        }
+        parseSSEChunk('\n\n', state, handlers); // flush remaining
+      } catch (err) {
+        if (signal.aborted) return;
+        handlers.onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+      return;
+    }
+  } catch {
+    // fetch streaming not supported — fall through to XHR
+  }
+
+  // Fallback: XHR with onprogress (works on React Native)
+  return new Promise<void>((resolve) => {
+    const xhr = new XMLHttpRequest();
+    let processed = 0;
+    const state = { buffer: '', currentEvent: '', currentData: '' };
+
+    xhr.open('GET', url);
+
+    signal.addEventListener('abort', () => xhr.abort());
+
+    xhr.onprogress = () => {
+      const newText = xhr.responseText.slice(processed);
+      processed = xhr.responseText.length;
+      if (newText) parseSSEChunk(newText, state, handlers);
+    };
+
+    xhr.onloadend = () => {
+      // Flush any remaining data
+      const remaining = xhr.responseText.slice(processed);
+      if (remaining) parseSSEChunk(remaining + '\n\n', state, handlers);
+      resolve();
+    };
+
+    xhr.onerror = () => {
+      handlers.onError?.(new Error('SSE connection failed'));
+      resolve();
+    };
+
+    xhr.send();
+  });
+}

@@ -1,75 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
 import { getSupabase } from '../lib/realtime';
 import { getUserFriendlyError, type FriendlyError } from '../lib/error-messages';
 import type { SitDown, SitDownParticipant, Member, Message, Profile } from '../lib/types';
-import type { RemoteTypingIndicator } from './useMessages';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { setActiveSitDown, broadcastLeave } from '../lib/realtime-hub';
-import { useAuth } from '../contexts/AuthContext';
-
+import { setActiveSitDown } from '../lib/realtime-hub';
 export interface MembersByOwner {
   profile: Profile;
   members: Member[];
 }
 
 const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
-
-// ---------------------------------------------------------------------------
-// Global typing indicator cache + subscription
-// ---------------------------------------------------------------------------
-
-const TYPING_STALE_MS = 120_000;
-
-const typingCache = new Map<string, Map<string, RemoteTypingIndicator>>();
-const typingListeners = new Map<string, Set<() => void>>();
-let globalTypingChannel: RealtimeChannel | null = null;
-
-function ensureGlobalTypingSubscription() {
-  if (globalTypingChannel) return;
-  globalTypingChannel = getSupabase()
-    .channel('global-typing')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'typing_indicators' },
-      (payload) => {
-        const row = payload.new as RemoteTypingIndicator;
-        const roomId = row.sit_down_id;
-        if (!typingCache.has(roomId)) typingCache.set(roomId, new Map());
-        typingCache.get(roomId)!.set(row.member_id, row);
-        typingListeners.get(roomId)?.forEach((fn) => fn());
-      },
-    )
-    .on(
-      'postgres_changes',
-      { event: 'DELETE', schema: 'public', table: 'typing_indicators' },
-      (payload) => {
-        const old = payload.old as { sit_down_id?: string; member_id?: string; id?: string };
-        if (old.sit_down_id && old.member_id) {
-          typingCache.get(old.sit_down_id)?.delete(old.member_id);
-          typingListeners.get(old.sit_down_id)?.forEach((fn) => fn());
-        }
-      },
-    )
-    .subscribe();
-}
-
-function getCachedIndicators(roomId: string): RemoteTypingIndicator[] {
-  const room = typingCache.get(roomId);
-  if (!room) return [];
-  const now = Date.now();
-  const active: RemoteTypingIndicator[] = [];
-  for (const [memberId, t] of room) {
-    if (now - new Date(t.started_at).getTime() < TYPING_STALE_MS) {
-      active.push(t);
-    } else {
-      room.delete(memberId);
-    }
-  }
-  return active;
-}
 
 // ---------------------------------------------------------------------------
 // Types for query data
@@ -96,8 +39,6 @@ interface OlderMessagesPage {
 
 export function useSitDownData(sitDownId: string | undefined) {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const [typingIndicators, setTypingIndicators] = useState<RemoteTypingIndicator[]>([]);
   const [enteredAt, setEnteredAt] = useState<string | null>(null);
   const dividerLastReadAtRef = useRef<string | null>(null);
 
@@ -202,11 +143,10 @@ export function useSitDownData(sitDownId: string | undefined) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId]);
 
-  // Set enteredAt and typing indicators when data loads
+  // Set enteredAt when data loads
   useEffect(() => {
     if (sitDownId && enterQuery.data) {
       setEnteredAt(new Date().toISOString());
-      setTypingIndicators(getCachedIndicators(sitDownId));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitDownId, !!enterQuery.data]);
@@ -317,24 +257,6 @@ export function useSitDownData(sitDownId: string | undefined) {
     };
   }, [sitDownId, queryClient]);
 
-  // ---- Global typing indicator subscription + per-room listener ----
-  useEffect(() => {
-    if (!sitDownId) return;
-
-    ensureGlobalTypingSubscription();
-
-    const listener = () => {
-      setTypingIndicators(getCachedIndicators(sitDownId));
-    };
-
-    if (!typingListeners.has(sitDownId)) typingListeners.set(sitDownId, new Set());
-    typingListeners.get(sitDownId)!.add(listener);
-
-    return () => {
-      typingListeners.get(sitDownId)?.delete(listener);
-    };
-  }, [sitDownId]);
-
   // ---- Mutation helpers ----
 
   const refreshParticipants = useCallback(async () => {
@@ -441,8 +363,6 @@ export function useSitDownData(sitDownId: string | undefined) {
 
     queryClient.invalidateQueries({ queryKey: ['sitDowns'] });
     queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
-
-    if (user?.id && sitDownId) broadcastLeave(user.id, sitDownId);
   }
 
   async function removeParticipant(participantId: string, { isLeaving = false } = {}) {
@@ -543,7 +463,6 @@ export function useSitDownData(sitDownId: string | undefined) {
     commissionMembers,
     membersByOwner,
     messages,
-    typingIndicators,
     lastReadAt,
     dividerLastReadAt: dividerLastReadAtRef.current,
     enteredAt,

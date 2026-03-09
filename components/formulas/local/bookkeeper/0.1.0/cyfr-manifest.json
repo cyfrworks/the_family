@@ -1,0 +1,235 @@
+{
+  "name": "bookkeeper",
+  "type": "formula",
+  "publisher": "local",
+  "version": "0.1.0",
+  "description": "Bookkeeper member — knowledge retrieval and LLM-powered synthesis from entries",
+  "setup": {
+    "policy": {
+      "allowed_tools": ["execution.run"],
+      "timeout": "2m",
+      "max_memory_bytes": 67108864
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["respond", "list_entries", "search", "get_entry", "create_entry", "update_entry", "delete_entry", "insert_message", "create_operation", "update_operation"],
+          "description": "The bookkeeper operation to perform (defaults to 'respond')"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token for RLS-scoped operations"
+        },
+        "catalyst_ref": {
+          "type": "string",
+          "description": "LLM catalyst reference (required for respond)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier (required for respond)"
+        },
+        "system": {
+          "type": "string",
+          "description": "System prompt override (optional, respond)"
+        },
+        "conversation": {
+          "type": "array",
+          "description": "Chat messages for context (respond)"
+        },
+        "member": {
+          "type": "object",
+          "description": "Member object with name, owner_id (respond)"
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Bookkeeper member ID (respond, list_entries, search)"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "Sit-down ID for message insertion (respond)"
+        },
+        "reply_to_id": {
+          "type": "string",
+          "description": "Message ID being replied to (respond)"
+        },
+        "bookkeeper_id": {
+          "type": "string",
+          "description": "Bookkeeper member ID (required for list_entries, search, create_entry)"
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query (required for search)"
+        },
+        "entry_id": {
+          "type": "string",
+          "description": "Entry ID (required for get_entry, update_entry, delete_entry)"
+        },
+        "title": {
+          "type": "string",
+          "description": "Entry title (required for create_entry, optional for update_entry)"
+        },
+        "content": {
+          "type": "string",
+          "description": "Entry content (required for create_entry, optional for update_entry)"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Entry tags (optional for create_entry, update_entry)"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Arbitrary metadata (optional for create_entry, update_entry)"
+        },
+        "source_member_id": {
+          "type": "string",
+          "description": "Source member ID (optional for create_entry)"
+        },
+        "source_operation_id": {
+          "type": "string",
+          "description": "Source operation ID (optional for create_entry)"
+        },
+        "operation_id": {
+          "type": "string",
+          "description": "Operation ID (required for update_operation)"
+        },
+        "owner_id": {
+          "type": "string",
+          "description": "Owner user ID (required for create_operation)"
+        },
+        "task_summary": {
+          "type": "string",
+          "description": "Task summary (optional for create_operation)"
+        },
+        "cron_job_id": {
+          "type": "string",
+          "description": "Cron job ID (optional for create_operation)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Operation status (optional for update_operation)"
+        },
+        "result_content": {
+          "type": "string",
+          "description": "Result content (optional for update_operation)"
+        },
+        "turns_used": {
+          "type": "integer",
+          "description": "Number of turns used (optional for update_operation)"
+        },
+        "tool_calls": {
+          "type": "integer",
+          "description": "Number of tool calls (optional for update_operation)"
+        },
+        "usage": {
+          "type": "object",
+          "description": "Token usage stats (optional for update_operation)"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "AI-synthesized response text (respond)"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "Inserted message ID (insert_message)"
+        },
+        "usage": {
+          "type": "object",
+          "description": "Token usage stats (respond, update_operation)"
+        },
+        "entries_used": {
+          "type": "integer",
+          "description": "Number of entries used for synthesis (respond)"
+        },
+        "entries": {
+          "type": "array",
+          "description": "List of entries (list_entries, search)"
+        },
+        "entry": {
+          "type": "object",
+          "description": "Single entry (get_entry, create_entry, update_entry)"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "Deletion confirmation (delete_entry)"
+        },
+        "operation_id": {
+          "type": "string",
+          "description": "Created operation ID (create_operation)"
+        },
+        "updated": {
+          "type": "boolean",
+          "description": "Update confirmation (update_operation)"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      { "ref": "catalyst:moonmoon69.supabase:0.3.1", "reason": "Search bookkeeper entries" },
+      { "ref": "catalyst:moonmoon69.claude:1.0.0", "reason": "Claude provider" },
+      { "ref": "catalyst:moonmoon69.openai:1.0.0", "reason": "OpenAI provider" },
+      { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
+      { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
+      { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Respond with knowledge synthesis",
+      "description": "Search entries and synthesize an AI response from matching knowledge",
+      "input": {
+        "action": "respond",
+        "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
+        "model": "claude-sonnet-4-6",
+        "conversation": [{ "role": "user", "content": "What do we know about the Barzini operation?" }],
+        "member": { "name": "The Bookkeeper", "owner_id": "user-1" },
+        "member_id": "mem-bk-1",
+        "sit_down_id": "sd-1",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "content": "Based on my records...",
+        "message_id": "msg-1",
+        "usage": { "input_tokens": 500, "output_tokens": 200 },
+        "entries_used": 3
+      }
+    },
+    {
+      "name": "List all entries",
+      "description": "Fetch all knowledge entries for a bookkeeper",
+      "input": {
+        "action": "list_entries",
+        "bookkeeper_id": "mem-bk-1",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "entries": [{ "id": "entry-1", "title": "Barzini Intel", "content": "..." }]
+      }
+    },
+    {
+      "name": "Create an entry",
+      "description": "Add a new knowledge entry to the bookkeeper",
+      "input": {
+        "action": "create_entry",
+        "bookkeeper_id": "mem-bk-1",
+        "title": "Meeting Notes",
+        "content": "Key takeaways from the sit-down...",
+        "tags": ["meetings", "intel"],
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "entry": { "id": "entry-2", "title": "Meeting Notes" }
+      }
+    }
+  ]
+}

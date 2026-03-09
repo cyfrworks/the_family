@@ -11,28 +11,43 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { X, ChevronDown, AlertTriangle } from 'lucide-react-native';
-import type { Provider, Member } from '../../lib/types';
-import { PROVIDER_LABELS, MEMBER_TEMPLATES } from '../../config/constants';
+import type { Provider, Member, MemberType } from '../../lib/types';
+import { PROVIDER_LABELS, MEMBER_TEMPLATES, CAPOREGIME_TEMPLATES, BOOKKEEPER_TEMPLATES, SOLDIER_TEMPLATES, MEMBER_TYPE_LABELS, MEMBER_TYPE_DESCRIPTIONS } from '../../config/constants';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { Dropdown } from '../ui/Dropdown';
+
+type CreatableMemberType = 'consul' | 'caporegime' | 'bookkeeper';
 
 interface MemberEditorProps {
   visible: boolean;
   member: Member | null;
-  onSave: (data: { name: string; catalog_model_id: string; system_prompt: string }) => Promise<void>;
+  onSave: (data: {
+    name: string;
+    catalog_model_id?: string;
+    system_prompt: string;
+    member_type?: MemberType;
+    caporegime_id?: string;
+  }) => Promise<void>;
   onClose: () => void;
+  /** Pre-set member type (e.g. for soldier creation) */
+  forceMemberType?: MemberType;
+  /** Pre-set caporegime_id for soldier creation */
+  caporegimeId?: string;
 }
 
-export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorProps) {
+export function MemberEditor({ visible, member, onSave, onClose, forceMemberType, caporegimeId }: MemberEditorProps) {
   const { modelsByProvider, availableProviders, loading: catalogLoading, error: catalogError, refetch: refetchCatalog } = useModelCatalog();
 
-  // Keep track of whether we're editing so the title doesn't flash during close animation
   const isEditing = useRef(false);
   if (visible) isEditing.current = !!member;
 
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showRolePicker, setShowRolePicker] = useState(false);
 
   const initialProvider = member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude';
+  const [memberType, setMemberType] = useState<CreatableMemberType>(
+    (forceMemberType as CreatableMemberType) ?? (member?.member_type as CreatableMemberType) ?? 'consul'
+  );
   const [name, setName] = useState(member?.name ?? '');
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [catalogModelId, setCatalogModelId] = useState(member?.catalog_model_id ?? '');
@@ -54,16 +69,19 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
     }
   }, [effectiveCatalogModelId, catalogModelId]);
 
-  // Refresh catalog and reset form when modal opens
   const prevVisible = useRef(false);
   useEffect(() => {
     if (visible && !prevVisible.current) {
       refetchCatalog();
       setShowTemplatePicker(false);
+      setShowRolePicker(false);
       setName(member?.name ?? '');
       setProvider(member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude');
       setCatalogModelId(member?.catalog_model_id ?? '');
       setSystemPrompt(member?.system_prompt ?? '');
+      setMemberType(
+        (forceMemberType as CreatableMemberType) ?? (member?.member_type as CreatableMemberType) ?? 'consul'
+      );
     }
     prevVisible.current = visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,17 +98,54 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
     setShowModelPicker(false);
   }
 
+  // Get templates for current role
+  const templates = forceMemberType === 'soldier'
+    ? SOLDIER_TEMPLATES
+    : memberType === 'caporegime'
+      ? CAPOREGIME_TEMPLATES
+      : memberType === 'bookkeeper'
+        ? BOOKKEEPER_TEMPLATES
+        : MEMBER_TEMPLATES;
+
+  const needsModel = true;
+
   async function handleSubmit() {
-    if (!name.trim() || !effectiveCatalogModelId) return;
+    if (!name.trim()) return;
+    if (!effectiveCatalogModelId) return;
+
     setSaving(true);
     try {
-      await onSave({ name: name.trim(), catalog_model_id: effectiveCatalogModelId, system_prompt: systemPrompt });
+      const data: {
+        name: string;
+        catalog_model_id?: string;
+        system_prompt: string;
+        member_type?: MemberType;
+        caporegime_id?: string;
+      } = {
+        name: name.trim(),
+        system_prompt: systemPrompt,
+      };
+
+      if (effectiveCatalogModelId) {
+        data.catalog_model_id = effectiveCatalogModelId;
+      }
+
+      if (!isEditing.current) {
+        data.member_type = forceMemberType ?? memberType;
+        if (caporegimeId) {
+          data.caporegime_id = caporegimeId;
+        }
+      }
+
+      await onSave(data);
     } finally {
       setSaving(false);
     }
   }
 
   const selectedModelAlias = providerModels.find((m) => m.id === effectiveCatalogModelId)?.alias ?? 'Select model';
+
+  const roleOptions: CreatableMemberType[] = ['consul', 'caporegime', 'bookkeeper'];
 
   return (
     <Modal
@@ -113,12 +168,17 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
               setShowProviderPicker(false);
               setShowModelPicker(false);
               setShowTemplatePicker(false);
+              setShowRolePicker(false);
             }}
           >
             {/* Header */}
             <View className="flex-row items-center justify-between border-b border-stone-800 px-5 py-4">
               <Text className="font-serif text-lg font-bold text-stone-100">
-                {isEditing.current ? 'Reassign Member' : 'Recruit Member'}
+                {isEditing.current
+                  ? 'Reassign Member'
+                  : forceMemberType === 'soldier'
+                    ? 'Add Soldier'
+                    : 'Recruit Member'}
               </Text>
               <Pressable onPress={onClose} className="p-1">
                 <X size={20} color="#a8a29e" />
@@ -135,6 +195,45 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
                   </View>
                 )}
 
+                {/* Role picker (create only, not for soldier) */}
+                {!isEditing.current && !forceMemberType && (
+                  <View>
+                    <Text className="mb-1 text-sm font-medium text-stone-300">Role</Text>
+                    <Dropdown
+                      open={showRolePicker}
+                      onClose={() => setShowRolePicker(false)}
+                      trigger={
+                        <Pressable
+                          onPress={() => {
+                            setShowProviderPicker(false);
+                            setShowModelPicker(false);
+                            setShowTemplatePicker(false);
+                            setShowRolePicker(!showRolePicker);
+                          }}
+                          className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                        >
+                          <Text className="text-sm text-stone-100">{MEMBER_TYPE_LABELS[memberType]}</Text>
+                          <ChevronDown size={16} color="#a8a29e" />
+                        </Pressable>
+                      }
+                    >
+                      {roleOptions.map((r) => (
+                        <Pressable
+                          key={r}
+                          onPress={() => {
+                            setMemberType(r);
+                            setShowRolePicker(false);
+                          }}
+                          className={`px-3 py-2.5 ${r === memberType ? 'bg-stone-700' : ''}`}
+                        >
+                          <Text className="text-sm text-stone-100">{MEMBER_TYPE_LABELS[r]}</Text>
+                          <Text className="text-xs text-stone-500">{MEMBER_TYPE_DESCRIPTIONS[r]}</Text>
+                        </Pressable>
+                      ))}
+                    </Dropdown>
+                  </View>
+                )}
+
                 {/* Template (create only) */}
                 {!isEditing.current && (
                   <View>
@@ -147,6 +246,7 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
                           onPress={() => {
                             setShowProviderPicker(false);
                             setShowModelPicker(false);
+                            setShowRolePicker(false);
                             setShowTemplatePicker(!showTemplatePicker);
                           }}
                           className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
@@ -156,7 +256,7 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
                         </Pressable>
                       }
                     >
-                      {MEMBER_TEMPLATES.map((t) => (
+                      {templates.map((t) => (
                         <Pressable
                           key={t.slug}
                           onPress={() => {
@@ -183,90 +283,94 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
                   <TextInput
                     value={name}
                     onChangeText={setName}
-                    placeholder="The Consigliere"
+                    placeholder={memberType === 'caporegime' ? 'The Captain' : memberType === 'bookkeeper' ? 'The Archivist' : 'The Consigliere'}
                     placeholderTextColor="#57534e"
                     className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-stone-100"
                   />
                 </View>
 
                 {/* Provider & Model pickers */}
-                {catalogLoading ? (
-                  <View className="flex-row items-center gap-2 py-2">
-                    <ActivityIndicator size="small" color="#a8a29e" />
-                    <Text className="text-sm text-stone-400">Loading models...</Text>
-                  </View>
-                ) : catalogError || availableProviders.length === 0 ? (
-                  <View className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2">
-                    <Text className="text-sm text-red-300">
-                      {catalogError ?? 'No models available. Ask your Godfather to add models to the catalog.'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View className="flex-row gap-3">
-                    {/* Provider picker */}
-                    <View className="flex-1">
-                      <Text className="mb-1 text-sm font-medium text-stone-300">Provider</Text>
-                      <Dropdown
-                        open={showProviderPicker}
-                        onClose={() => setShowProviderPicker(false)}
-                        trigger={
-                          <Pressable
-                            onPress={() => {
-                              setShowModelPicker(false);
-                              setShowProviderPicker(!showProviderPicker);
-                            }}
-                            className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                {needsModel && (
+                  <>
+                    {catalogLoading ? (
+                      <View className="flex-row items-center gap-2 py-2">
+                        <ActivityIndicator size="small" color="#a8a29e" />
+                        <Text className="text-sm text-stone-400">Loading models...</Text>
+                      </View>
+                    ) : catalogError || availableProviders.length === 0 ? (
+                      <View className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2">
+                        <Text className="text-sm text-red-300">
+                          {catalogError ?? 'No models available. Ask your Godfather to add models to the catalog.'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View className="flex-row gap-3">
+                        {/* Provider picker */}
+                        <View className="flex-1">
+                          <Text className="mb-1 text-sm font-medium text-stone-300">Provider</Text>
+                          <Dropdown
+                            open={showProviderPicker}
+                            onClose={() => setShowProviderPicker(false)}
+                            trigger={
+                              <Pressable
+                                onPress={() => {
+                                  setShowModelPicker(false);
+                                  setShowProviderPicker(!showProviderPicker);
+                                }}
+                                className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                              >
+                                <Text className="text-sm text-stone-100">{PROVIDER_LABELS[provider]}</Text>
+                                <ChevronDown size={16} color="#a8a29e" />
+                              </Pressable>
+                            }
                           >
-                            <Text className="text-sm text-stone-100">{PROVIDER_LABELS[provider]}</Text>
-                            <ChevronDown size={16} color="#a8a29e" />
-                          </Pressable>
-                        }
-                      >
-                        {availableProviders.map((p) => (
-                          <Pressable
-                            key={p}
-                            onPress={() => handleProviderChange(p)}
-                            className={`px-3 py-2.5 ${p === provider ? 'bg-stone-700' : ''}`}
-                          >
-                            <Text className="text-sm text-stone-100">{PROVIDER_LABELS[p]}</Text>
-                          </Pressable>
-                        ))}
-                      </Dropdown>
-                    </View>
+                            {availableProviders.map((p) => (
+                              <Pressable
+                                key={p}
+                                onPress={() => handleProviderChange(p)}
+                                className={`px-3 py-2.5 ${p === provider ? 'bg-stone-700' : ''}`}
+                              >
+                                <Text className="text-sm text-stone-100">{PROVIDER_LABELS[p]}</Text>
+                              </Pressable>
+                            ))}
+                          </Dropdown>
+                        </View>
 
-                    {/* Model picker */}
-                    <View className="flex-1">
-                      <Text className="mb-1 text-sm font-medium text-stone-300">Model</Text>
-                      <Dropdown
-                        open={showModelPicker}
-                        onClose={() => setShowModelPicker(false)}
-                        trigger={
-                          <Pressable
-                            onPress={() => {
-                              setShowProviderPicker(false);
-                              setShowModelPicker(!showModelPicker);
-                            }}
-                            className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                        {/* Model picker */}
+                        <View className="flex-1">
+                          <Text className="mb-1 text-sm font-medium text-stone-300">Model</Text>
+                          <Dropdown
+                            open={showModelPicker}
+                            onClose={() => setShowModelPicker(false)}
+                            trigger={
+                              <Pressable
+                                onPress={() => {
+                                  setShowProviderPicker(false);
+                                  setShowModelPicker(!showModelPicker);
+                                }}
+                                className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                              >
+                                <Text className="text-sm text-stone-100" numberOfLines={1}>
+                                  {selectedModelAlias}
+                                </Text>
+                                <ChevronDown size={16} color="#a8a29e" />
+                              </Pressable>
+                            }
                           >
-                            <Text className="text-sm text-stone-100" numberOfLines={1}>
-                              {selectedModelAlias}
-                            </Text>
-                            <ChevronDown size={16} color="#a8a29e" />
-                          </Pressable>
-                        }
-                      >
-                        {providerModels.map((m) => (
-                          <Pressable
-                            key={m.id}
-                            onPress={() => handleModelChange(m.id)}
-                            className={`px-3 py-2.5 ${m.id === effectiveCatalogModelId ? 'bg-stone-700' : ''}`}
-                          >
-                            <Text className="text-sm text-stone-100">{m.alias}</Text>
-                          </Pressable>
-                        ))}
-                      </Dropdown>
-                    </View>
-                  </View>
+                            {providerModels.map((m) => (
+                              <Pressable
+                                key={m.id}
+                                onPress={() => handleModelChange(m.id)}
+                                className={`px-3 py-2.5 ${m.id === effectiveCatalogModelId ? 'bg-stone-700' : ''}`}
+                              >
+                                <Text className="text-sm text-stone-100">{m.alias}</Text>
+                              </Pressable>
+                            ))}
+                          </Dropdown>
+                        </View>
+                      </View>
+                    )}
+                  </>
                 )}
 
                 {/* System Prompt */}
@@ -304,7 +408,7 @@ export function MemberEditor({ visible, member, onSave, onClose }: MemberEditorP
                       <ActivityIndicator size="small" color="#0c0a09" />
                     ) : (
                       <Text className="text-sm font-semibold text-stone-950">
-                        {isEditing.current ? 'Reassign' : 'Recruit'}
+                        {isEditing.current ? 'Reassign' : forceMemberType === 'soldier' ? 'Add' : 'Recruit'}
                       </Text>
                     )}
                   </Pressable>

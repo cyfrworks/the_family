@@ -47,9 +47,12 @@
 │  │  Formulas (WASM-sandboxed orchestration, local + reg.)  │    │
 │  │                                                         │    │
 │  │  local.admin-api         ──► admin / catalog CRUD       │    │
-│  │  local.members-api       ──► member CRUD                │    │
+│  │  local.members-api       ──► member CRUD + crews        │    │
 │  │  local.sit-down          ──► CRUD, participants,        │    │
-│  │                              messages, AI responses     │    │
+│  │                              messages, mention routing   │    │
+│  │  local.family-member     ──► unified behavior engine    │    │
+│  │                              (consul, capo, bookkeeper) │    │
+│  │  local.bookkeeper-api    ──► bookkeeper entry CRUD      │    │
 │  │  local.settings-api      ──► profile + password mgmt    │    │
 │  │  local.commission-api    ──► commission contacts         │    │
 │  │  local.informant-api     ──► informant token auth +     │    │
@@ -70,23 +73,56 @@
 - **Made members, not chatbots** — AI Members are first-class participants. Same table, same message schema as humans. They don't assist — they sit down with you.
 - **@mention to summon** — `@MemberName` calls on a specific Member; `@all` lets everyone at the table have their say. The server decides who talks.
 - **The whole table talks** — call on multiple Members and the server spawns them asynchronously. Each responds independently with their own personality, model, and provider.
+- **The full hierarchy** — five member types, each with a distinct role in the family:
+  - **Consuls** — one-shot advisors, @mentionable, respond with a single message
+  - **Caporegimes** — orchestrators with agentic tool use, acknowledge orders immediately, work in the background, and post a report back to the sit-down
+  - **Soldiers** — crew members nested under a Caporegime, not @mentionable by the Don, invoked only by their captain during operations
+  - **Bookkeepers** — knowledge stores, @mentionable for queries, each with their own browsable entry database
+  - **Informants** — push-only service members with API tokens for external integrations
+- **Operations dashboard** — every Caporegime run is tracked: status, tool calls, token usage, and results. Live updates via realtime.
 - **The Commission** — invite other Dons by email, form alliances, run inter-family sit-downs where multiple Dons bring their own crews to the same table.
 - **The Godfather runs the catalog** — admin-curated model catalog with aliases that hide raw model IDs. Hot-swap the underlying model and nobody notices. Tier-gated access (Godfather / Boss / Associate).
 - **Multi-provider muscle** — Claude, OpenAI, Gemini, Grok, and OpenRouter Members working the same sit-down, each routed to their own provider.
-- **Informants** — service members with API tokens for external integrations. Bots, webhooks, or external tools that post messages to sit-downs via a simple REST API.
 - **No backend code** — CYFR is the entire backend. Every operation is a JSON-RPC call to CYFR components. No Express, no API routes, no Lambda.
 
-## The Outfit — Member Templates
+## The Hierarchy
 
-Five personality templates, ready to work. Pick a template, choose a model from the catalog, and they're made.
+```
+Don (human user)
+├── Consuls — advisors, @mentionable, one-shot responses
+├── Caporegimes — orchestrators, @mentionable, agentic tool use
+│   └── Soldiers — crew members, invoked only by their captain
+├── Bookkeepers — knowledge stores, @mentionable for queries
+└── Informants — external data, push-only via API token
+```
 
-| Member | Personality |
-|------|-------------|
-| The Consigliere | Measured advisor, strategic counsel, speaks in metaphors |
-| The Caporegime | Direct, action-oriented captain, street-smart |
-| The Underboss | Second in command, balances strategy with operations |
-| The Soldato | Loyal soldier, quick-witted and resourceful |
-| The Accountant | Analytical financial mind, data-driven, precise |
+### Member Templates
+
+Templates for each role, ready to work. Pick a template, choose a model from the catalog, and they're made.
+
+**Consul templates:**
+
+| Template | Personality |
+|----------|-------------|
+| Il Consigliere | The wise counsel — measured advice drawn from history and strategy |
+| Il Sottocapo | The underboss — bridges vision and execution, sees the full picture |
+| Il Diplomatico | The smooth operator — finds common ground, builds bridges |
+| L'Avvocato | The lawyer — sharp analytical mind, argues both sides, finds the angle |
+| Il Ragioniere | The accountant — numbers, patterns, and the bottom line |
+
+**Caporegime templates:**
+
+| Template | Personality |
+|----------|-------------|
+| Il Capitano | The enforcer — direct, efficient, delegates and reports |
+| Lo Stratega | The strategist — plans before acting, coordinates multiple angles |
+
+**Bookkeeper templates:**
+
+| Template | Personality |
+|----------|-------------|
+| Il Bibliotecario | The librarian — meticulous records, precise retrieval |
+| L'Analista | The analyst — connects dots, synthesizes patterns across records |
 
 Templates are personality-only — the model is chosen at creation time from whatever the Godfather has published in the catalog.
 
@@ -113,11 +149,11 @@ Templates are personality-only — the model is chosen at creation time from wha
 Create a project at [supabase.com](https://supabase.com), then run the migrations:
 
 ```
-Run each SQL file from the migrations/ directory (001 through 013)
+Run each SQL file from the migrations/ directory (001 through 014)
 in order in your Supabase project → SQL Editor → New Query → Run
 ```
 
-This sets up the whole operation: tables (`profiles`, `model_catalog`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`, `informants`, `informant_tokens`), RLS policies, triggers, and RPC functions.
+This sets up the whole operation: tables (`profiles`, `model_catalog`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`, `informants`, `informant_tokens`, `operations`, `bookkeeper_entries`), RLS policies, triggers, and RPC functions.
 
 After running the migrations, promote your first user to Godfather so they can manage the model catalog:
 
@@ -181,7 +217,7 @@ cyfr secret set
 cyfr secret grant
 
 # Set host policies (which domains each component can reach)
-cyfr policy set c:moonmoon69.supabase:0.2.0 allowed_domains '["YOUR_PROJECT.supabase.co"]'
+cyfr policy set c:moonmoon69.supabase:0.3.0 allowed_domains '["YOUR_PROJECT.supabase.co"]'
 cyfr policy set c:moonmoon69.claude:1.0.0 allowed_domains '["api.anthropic.com"]'
 cyfr policy set c:moonmoon69.openai:1.0.0 allowed_domains '["api.openai.com"]'
 cyfr policy set c:moonmoon69.gemini:1.0.0 allowed_domains '["generativelanguage.googleapis.com"]'
@@ -194,6 +230,8 @@ cyfr policy set f:local.commission-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.members-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.admin-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.sit-down:0.1.0 allowed_tools '["execution.run"]'
+cyfr policy set f:local.family-member:0.1.0 allowed_tools '["execution.run", "execution.list", "tools.list", "cron.create", "cron.list", "cron.update", "cron.delete"]'
+cyfr policy set f:local.bookkeeper-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.informant-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.list-models:0.5.0 allowed_tools '["execution.run"]'
 ```
@@ -229,6 +267,7 @@ And these formula tool policies (formulas dispatch sub-component calls via MCP t
 | Component | Allowed tools |
 |-----------|--------------|
 | All API formulas | `execution.run` |
+| `local.family-member` | `execution.run`, `execution.list`, `tools.list`, `cron.*` |
 | `local.informant-api` | `execution.run` |
 | `local.list-models` | `execution.run` |
 
@@ -244,12 +283,15 @@ npx expo start --web    # Expo dev server on port 8081, proxies /cyfr → CYFR
 
 1. **Make your bones** — sign up on the login page
 2. **Become Godfather** — promote yourself via SQL (see Setup), then open the Admin page to discover models from your API keys and publish them to the catalog with user-facing aliases
-3. **Recruit your crew** — go to Members and pick from The Outfit or create your own with a custom system prompt, then choose a model from the catalog
-4. **Set up informants** — create Informants from the Members page, get an API token, and integrate external tools that pass intel to sit-downs
-5. **Call a sit-down** — create a new conversation from the dashboard or sidebar
-6. **Bring them to the table** — open sit-down settings and add Members from your library
-7. **Talk business** — type messages; use `@MemberName` to hear from a specific Member, or `@all` to let everyone speak
-8. **Form the Commission** — invite other Dons by email, accept invites, and run inter-family sit-downs where multiple Dons bring their crews to the table
+3. **Recruit your crew** — go to Members and create Consuls, Caporegimes, or Bookkeepers. Pick a template or write a custom system prompt, then choose a model from the catalog
+4. **Build a crew** — expand a Caporegime and add Soldiers to its crew. Each Soldier gets its own model and prompt, invoked only by its captain
+5. **Stock the books** — create a Bookkeeper, then add entries via the Bookkeeper browser. Caporegimes can also write to bookkeepers during operations
+6. **Set up informants** — create Informants from the Members page, get an API token, and integrate external tools that pass intel to sit-downs
+7. **Call a sit-down** — create a new conversation from the dashboard or sidebar
+8. **Bring them to the table** — open sit-down settings and add Members from your library
+9. **Talk business** — type messages; use `@MemberName` to hear from a specific Member, or `@all` to let everyone speak. @mention a Caporegime to send it on a mission — it acknowledges, works in the background, and reports back
+10. **Check operations** — view the Operations dashboard for live status, tool calls, and results from Caporegime runs
+11. **Form the Commission** — invite other Dons by email, accept invites, and run inter-family sit-downs where multiple Dons bring their crews to the table
 
 ## How It Works
 
@@ -267,15 +309,24 @@ The Godfather manages a `model_catalog` table that maps user-facing aliases (e.g
 
 ### Hearing from the crew — AI Responses
 
-@mention a Member and they respond. @all and everyone at the table speaks. The `sit-down` formula handles everything server-side — it resolves the Member's model and provider, calls the right LLM catalyst, and writes the response back to the database. You just talk.
+@mention a Member and they respond. @all and everyone at the table speaks. The `sit-down` formula routes each mention to the `family-member` formula, which handles behavior per member type:
+
+- **Consuls** — single-shot LLM call, response appears directly in the sit-down
+- **Caporegimes** — acknowledge immediately ("On it, boss."), run an agentic loop with MCP tools in the background, then post a summary report back to the sit-down. Full details tracked in the Operations table
+- **Bookkeepers** — search their knowledge store for relevant entries, synthesize an answer with LLM context
+- **Soldiers** — never invoked directly. A Caporegime delegates tasks to its soldiers during its agentic loop
+
+### Operations
+
+Every Caporegime run creates an operation record: status (running/completed/failed), task summary, tool calls, token usage, and results. The Operations dashboard shows live status updates via realtime subscriptions.
+
+### Bookkeepers
+
+Each Bookkeeper has its own knowledge store — a collection of titled entries with content and tags. Browse, search, create, and edit entries from the Bookkeeper screen. Caporegimes can read from and write to bookkeepers during operations via the bookkeeper-api formula.
 
 ### Keeping an ear out — Live Updates
 
-Messages and typing indicators appear in real time via Supabase Realtime channels. All Dons at the table see new messages and "Member is thinking..." indicators as they come in.
-
-### Typing indicators
-
-When a Member is thinking, everyone at the table sees it in real time. The indicator appears as soon as the request is sent and disappears when the response lands.
+Messages, typing indicators, and operation status updates appear in real time via Supabase Realtime channels.
 
 ### Informants
 
@@ -357,15 +408,17 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 | Component | Type | Source | Description |
 |-----------|------|--------|-------------|
-| `catalyst:moonmoon69.supabase:0.2.0` | Catalyst | Registry | Auth (GoTrue), database (PostgREST), storage, edge functions |
+| `catalyst:moonmoon69.supabase:0.3.0` | Catalyst | Registry | Auth (GoTrue), database (PostgREST), storage, edge functions |
 | `catalyst:moonmoon69.claude:1.0.0` | Catalyst | Registry | Anthropic Claude API — messages, streaming, model listing |
 | `catalyst:moonmoon69.openai:1.0.0` | Catalyst | Registry | OpenAI API — responses, completions, model listing |
 | `catalyst:moonmoon69.gemini:1.0.0` | Catalyst | Registry | Google Gemini API — generation, model listing |
 | `catalyst:moonmoon69.grok:1.0.0` | Catalyst | Registry | xAI Grok API — chat completions, model listing |
 | `catalyst:moonmoon69.openrouter:1.0.0` | Catalyst | Registry | OpenRouter API — 400+ models via unified API |
 | `formula:local.admin-api:0.1.0` | Formula | Local | User listing, tier management, model catalog CRUD |
-| `formula:local.members-api:0.1.0` | Formula | Local | Member CRUD with tier-based model access checks |
-| `formula:local.sit-down:0.1.0` | Formula | Local | Consolidated sit-down: CRUD, participants, messages, AI responses |
+| `formula:local.members-api:0.1.0` | Formula | Local | Member CRUD, crew management, tier-based model access |
+| `formula:local.sit-down:0.1.0` | Formula | Local | Sit-down CRUD, participants, messages, mention routing |
+| `formula:local.family-member:0.1.0` | Formula | Local | Unified behavior engine — consul, caporegime, bookkeeper |
+| `formula:local.bookkeeper-api:0.1.0` | Formula | Local | Bookkeeper entry CRUD and full-text search |
 | `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
 | `formula:local.informant-api:0.1.0` | Formula | Local | Informant token auth + message dispatch |
@@ -382,7 +435,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── _layout.tsx         # App shell + sidebar
 │   │   │   ├── index.tsx           # Dashboard
 │   │   │   ├── admin.tsx           # Admin page
-│   │   │   ├── members.tsx         # Members page
+│   │   │   ├── members.tsx         # Members page (consuls, capos, bookkeepers)
+│   │   │   ├── operations.tsx      # Operations dashboard
+│   │   │   ├── bookkeeper.tsx      # Bookkeeper browser
 │   │   │   ├── commission.tsx      # Commission page
 │   │   │   ├── settings.tsx        # Settings page
 │   │   │   └── (sitdowns)/         # Sit-down route group
@@ -399,7 +454,8 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │                           # InviteToCommissionModal, PendingInvitesBanner
 │   │   ├── common/                 # RunYourFamilyButton
 │   │   ├── layout/                 # Sidebar, MobileTabBar
-│   │   ├── members/                # MemberCard, MemberEditor, InformantCard, InformantUsage
+│   │   ├── members/                # MemberCard, MemberEditor, CaporegimeCard,
+│   │   │                           # InformantCard, InformantUsage
 │   │   ├── sitdown/                # CreateSitdownModal, MemberList
 │   │   ├── sitdowns/               # SitDownList, SitDownListItem
 │   │   └── ui/                     # Dropdown
@@ -410,6 +466,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   ├── CommissionContext.tsx    # Commission contacts + realtime
 │   │   └── FamilySitDownContext.tsx # Sit-down state for family view
 │   ├── hooks/                      # useMembers, useSitDowns, useSitDownData,
+│   │                               # useOperations, useBookkeeperEntries,
 │   │                               # useInformants, useCommissionSitDowns,
 │   │                               # useRealtimeStatus, useMention, etc.
 │   ├── lib/
@@ -436,17 +493,19 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   └── formulas/
 │       └── local/
 │           ├── admin-api/0.1.0/        # Admin operations + model catalog CRUD
+│           ├── bookkeeper-api/0.1.0/   # Bookkeeper entry CRUD + search
 │           ├── commission-api/0.1.0/   # Commission contact management
+│           ├── family-member/0.1.0/    # Unified behavior engine
 │           ├── informant-api/0.1.0/    # Informant token auth + message dispatch
 │           ├── list-models/0.5.0/      # Model listing aggregation (local)
-│           ├── members-api/0.1.0/      # Member CRUD
+│           ├── members-api/0.1.0/      # Member CRUD + crew management
 │           ├── settings-api/0.1.0/     # Profile + password management
-│           └── sit-down/0.1.0/         # Consolidated sit-down operations
+│           └── sit-down/0.1.0/         # Sit-down operations + mention routing
 ├── wit/                            # WebAssembly Interface Types
 │   ├── catalyst/                   # Catalyst WIT (run, http, secrets)
 │   ├── formula/                    # Formula WIT (run, invoke)
 │   └── reagent/                    # Reagent WIT
-├── migrations/                     # Database migrations (001 through 013)
+├── migrations/                     # Database migrations (001 through 014)
 ├── inform-proxy.js                 # REST-to-CYFR proxy for /inform endpoint
 ├── docker-compose.yml              # CYFR + inform-proxy + web build + Caddy
 ├── Caddyfile                       # Caddy reverse proxy config (production)

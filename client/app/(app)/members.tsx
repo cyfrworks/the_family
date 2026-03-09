@@ -1,23 +1,31 @@
-import { useState } from 'react';
-import { View, Text, Pressable, FlatList, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, Pressable, ActivityIndicator, ScrollView } from 'react-native';
 import { Plus, Copy, Check } from 'lucide-react-native';
+import { TextInput } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useMembers } from '../../hooks/useMembers';
 import { useInformants } from '../../hooks/useInformants';
 import { MemberCard } from '../../components/members/MemberCard';
 import { MemberEditor } from '../../components/members/MemberEditor';
+import { CaporegimeCard } from '../../components/members/CaporegimeCard';
 import { InformantCard } from '../../components/members/InformantCard';
 import { InformantUsage } from '../../components/members/InformantUsage';
-import type { Member } from '../../lib/types';
+import type { Member, MemberType } from '../../lib/types';
 import { toast } from '../../lib/toast';
 import { confirmAlert } from '../../lib/alert';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
 
 export default function MembersScreen() {
-  const { members, loading, createMember, updateMember, deleteMember } = useMembers();
+  const { members, loading, createMember, updateMember, deleteMember, listCrew } = useMembers();
   const { informants, loading: informantsLoading, createInformant, deleteInformant, regenerateToken } = useInformants();
   const [editing, setEditing] = useState<Member | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editorMemberType, setEditorMemberType] = useState<MemberType | undefined>(undefined);
+  const [editorCaporegimeId, setEditorCaporegimeId] = useState<string | undefined>(undefined);
+
+  // Crew state: caporegime_id -> soldiers
+  const [crewMap, setCrewMap] = useState<Record<string, Member[]>>({});
+  const [crewLoading, setCrewLoading] = useState<Record<string, boolean>>({});
 
   // Informant creation state
   const [creatingInformant, setCreatingInformant] = useState(false);
@@ -26,8 +34,35 @@ export default function MembersScreen() {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
 
+  // Categorize members
+  const consuls = members.filter((m) => m.member_type === 'consul');
+  const caporegimes = members.filter((m) => m.member_type === 'caporegime');
+  const bookkeepers = members.filter((m) => m.member_type === 'bookkeeper');
+
+  // Load crew for each caporegime
+  const loadCrew = useCallback(async (capoId: string) => {
+    setCrewLoading((prev) => ({ ...prev, [capoId]: true }));
+    try {
+      const soldiers = await listCrew(capoId);
+      setCrewMap((prev) => ({ ...prev, [capoId]: soldiers }));
+    } catch {
+      // silent fail
+    } finally {
+      setCrewLoading((prev) => ({ ...prev, [capoId]: false }));
+    }
+  }, [listCrew]);
+
+  useEffect(() => {
+    for (const capo of caporegimes) {
+      if (!crewMap[capo.id] && !crewLoading[capo.id]) {
+        loadCrew(capo.id);
+      }
+    }
+  }, [caporegimes, crewMap, crewLoading, loadCrew]);
+
   async function handleDelete(member: Member) {
-    const confirmed = await confirmAlert('Remove Member', `Remove ${member.name} from the Family?`);
+    const label = member.member_type === 'caporegime' ? 'Caporegime' : member.member_type === 'bookkeeper' ? 'Bookkeeper' : 'Member';
+    const confirmed = await confirmAlert(`Remove ${label}`, `Remove ${member.name} from the Family?`);
     if (!confirmed) return;
     try {
       await deleteMember(member.id);
@@ -37,17 +72,34 @@ export default function MembersScreen() {
     }
   }
 
-  async function handleSave(data: { name: string; catalog_model_id: string; system_prompt: string }) {
+  async function handleSave(data: {
+    name: string;
+    catalog_model_id?: string;
+    system_prompt: string;
+    member_type?: MemberType;
+    caporegime_id?: string;
+  }) {
     try {
       if (editing) {
-        await updateMember(editing.id, data);
+        await updateMember(editing.id, {
+          name: data.name,
+          catalog_model_id: data.catalog_model_id,
+          system_prompt: data.system_prompt,
+        });
         toast.success(`${data.name} has new orders.`);
       } else {
         await createMember(data);
-        toast.success(`${data.name} has joined the Family.`);
+        const label = data.member_type === 'soldier' ? 'soldier' : data.member_type === 'caporegime' ? 'captain' : 'member';
+        toast.success(`${data.name} has joined the Family as ${label}.`);
+        // Reload crew if we added a soldier
+        if (data.caporegime_id) {
+          loadCrew(data.caporegime_id);
+        }
       }
       setEditing(null);
       setCreating(false);
+      setEditorMemberType(undefined);
+      setEditorCaporegimeId(undefined);
     } catch {
       toast.error("Couldn't make it happen.");
     }
@@ -56,6 +108,34 @@ export default function MembersScreen() {
   function handleClose() {
     setEditing(null);
     setCreating(false);
+    setEditorMemberType(undefined);
+    setEditorCaporegimeId(undefined);
+  }
+
+  function handleCreateWithType(type?: MemberType) {
+    setEditorMemberType(type);
+    setEditorCaporegimeId(undefined);
+    setCreating(true);
+  }
+
+  function handleAddSoldier(caporegimeId: string) {
+    setEditorMemberType('soldier');
+    setEditorCaporegimeId(caporegimeId);
+    setCreating(true);
+  }
+
+  async function handleDeleteSoldier(soldier: Member) {
+    const confirmed = await confirmAlert('Remove Soldier', `Remove ${soldier.name} from the crew?`);
+    if (!confirmed) return;
+    try {
+      await deleteMember(soldier.id);
+      toast.success(`${soldier.name} has been dismissed.`);
+      if (soldier.caporegime_id) {
+        loadCrew(soldier.caporegime_id);
+      }
+    } catch {
+      toast.error("Couldn't remove the soldier.");
+    }
   }
 
   async function handleCreateInformant() {
@@ -119,11 +199,11 @@ export default function MembersScreen() {
           <View>
             <Text className="font-serif text-3xl font-bold text-stone-100">Members</Text>
             <Text className="mt-1 text-sm text-stone-400">
-              Your AI personas for sit-downs.
+              Your family for sit-downs.
             </Text>
           </View>
           <Pressable
-            onPress={() => setCreating(true)}
+            onPress={() => handleCreateWithType()}
             className="flex-row items-center gap-2 rounded-lg bg-gold-600 px-4 py-2"
           >
             <Plus size={16} color="#0c0a09" />
@@ -131,31 +211,86 @@ export default function MembersScreen() {
           </Pressable>
         </View>
 
-        {/* AI Members List */}
         {loading ? (
           <View className="items-center justify-center py-12">
             <ActivityIndicator color="#78716c" />
             <Text className="mt-2 text-sm text-stone-500">Loading...</Text>
           </View>
-        ) : members.length === 0 ? (
-          <View className="items-center justify-center py-12">
-            <Text className="text-sm text-stone-500">No members yet.</Text>
-          </View>
         ) : (
-          <View className="gap-2">
-            {members.map((member) => (
-              <MemberCard
-                key={member.id}
-                member={member}
-                onEdit={() => setEditing(member)}
-                onDelete={() => handleDelete(member)}
-              />
-            ))}
-          </View>
+          <>
+            {/* Consuls Section */}
+            {consuls.length > 0 && (
+              <View className="mb-8">
+                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
+                  Consuls
+                </Text>
+                <View className="gap-2">
+                  {consuls.map((member) => (
+                    <MemberCard
+                      key={member.id}
+                      member={member}
+                      onEdit={() => setEditing(member)}
+                      onDelete={() => handleDelete(member)}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Caporegimes Section */}
+            {caporegimes.length > 0 && (
+              <View className="mb-8">
+                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
+                  Caporegimes
+                </Text>
+                <View className="gap-2">
+                  {caporegimes.map((member) => (
+                    <CaporegimeCard
+                      key={member.id}
+                      member={member}
+                      onEdit={() => setEditing(member)}
+                      onDelete={() => handleDelete(member)}
+                      onAddSoldier={() => handleAddSoldier(member.id)}
+                      onEditSoldier={(soldier) => setEditing(soldier)}
+                      onDeleteSoldier={handleDeleteSoldier}
+                      soldiers={crewMap[member.id] || []}
+                      loadingSoldiers={crewLoading[member.id]}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Bookkeepers Section */}
+            {bookkeepers.length > 0 && (
+              <View className="mb-8">
+                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
+                  Bookkeepers
+                </Text>
+                <View className="gap-2">
+                  {bookkeepers.map((member) => (
+                    <MemberCard
+                      key={member.id}
+                      member={member}
+                      onEdit={() => setEditing(member)}
+                      onDelete={() => handleDelete(member)}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Empty state */}
+            {consuls.length === 0 && caporegimes.length === 0 && bookkeepers.length === 0 && (
+              <View className="items-center justify-center py-12">
+                <Text className="text-sm text-stone-500">No members yet.</Text>
+              </View>
+            )}
+          </>
         )}
 
         {/* Informants Section */}
-        <View className="mt-12 mb-6 flex-row items-center justify-between">
+        <View className="mt-4 mb-6 flex-row items-center justify-between">
           <View>
             <Text className="font-serif text-2xl font-bold text-stone-100">Informants</Text>
             <Text className="mt-1 text-sm text-stone-400">
@@ -205,6 +340,8 @@ export default function MembersScreen() {
         member={editing}
         onSave={handleSave}
         onClose={handleClose}
+        forceMemberType={editorMemberType}
+        caporegimeId={editorCaporegimeId}
       />
 
       {/* Informant Creator Modal */}
@@ -212,7 +349,6 @@ export default function MembersScreen() {
         <View className="absolute inset-0 items-center justify-center bg-black/60 px-4">
           <View className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6">
             {newToken ? (
-              // Token display (shown once)
               <>
                 <Text className="mb-1 font-serif text-xl font-bold text-stone-100">
                   Informant Token
@@ -251,7 +387,6 @@ export default function MembersScreen() {
                 </Pressable>
               </>
             ) : (
-              // Creation form
               <>
                 <Text className="mb-4 font-serif text-xl font-bold text-stone-100">
                   New Informant
@@ -271,7 +406,7 @@ export default function MembersScreen() {
                 <TextInput
                   value={informantEmoji}
                   onChangeText={setInformantEmoji}
-                  placeholder="\u{1F50D}"
+                  placeholder={'\u{1F50D}'}
                   placeholderTextColor="#57534e"
                   className="mb-4 rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-sm text-stone-100"
                   maxLength={2}

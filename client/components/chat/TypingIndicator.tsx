@@ -11,6 +11,7 @@ import Animated, {
 
 interface TypingIndicatorProps {
   memberName: string;
+  statusText?: string;
 }
 
 function AnimatedDot({ delay }: { delay: number }) {
@@ -41,7 +42,7 @@ function AnimatedDot({ delay }: { delay: number }) {
   return <Animated.View style={animatedStyle} />;
 }
 
-export function TypingIndicator({ memberName }: TypingIndicatorProps) {
+export function TypingIndicator({ memberName, statusText }: TypingIndicatorProps) {
   return (
     <View className="flex-row items-center gap-2 px-4 py-2">
       <View className="flex-row items-center gap-1">
@@ -50,7 +51,9 @@ export function TypingIndicator({ memberName }: TypingIndicatorProps) {
         <AnimatedDot delay={300} />
       </View>
       <Text className="text-xs text-stone-500 italic">
-        {memberName} is deliberating...
+        {statusText
+          ? `${memberName} \u2014 ${statusText}`
+          : `${memberName} is deliberating...`}
       </Text>
     </View>
   );

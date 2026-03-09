@@ -1,6 +1,6 @@
 import { View, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageSquare, Users, Shield, Crown, Settings } from 'lucide-react-native';
+import { MessageSquare, Users, Shield, Crown, Settings, Activity } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCommissionContext } from '../../contexts/CommissionContext';
 import { useFamilySitDownContext } from '../../contexts/FamilySitDownContext';
@@ -28,6 +28,7 @@ export function MobileTabBar({ state, descriptors, navigation }: BottomTabBarPro
     { name: '(sitdowns)', label: 'Sit-downs', icon: MessageSquare, badge: totalUnread },
     { name: 'commission', label: 'Commission', icon: Users, badge: pendingInvites.length },
     { name: 'members', label: 'Members', icon: Shield },
+    { name: 'operations', label: 'Ops', icon: Activity },
     { name: 'admin', label: 'Admin', icon: Crown, hidden: !isGodfather },
     { name: 'settings', label: 'Settings', icon: Settings },
   ];

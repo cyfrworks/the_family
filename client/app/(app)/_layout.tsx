@@ -53,6 +53,7 @@ export default function AppLayout() {
                 <Drawer.Screen name="index" options={{ title: 'Home' }} />
                 <Drawer.Screen name="(sitdowns)" options={{ title: 'Sit-downs', drawerItemStyle: { display: 'none' } }} />
                 <Drawer.Screen name="members" options={{ title: 'Members', drawerItemStyle: { display: 'none' } }} />
+                <Drawer.Screen name="operations" options={{ title: 'Operations', drawerItemStyle: { display: 'none' } }} />
                 <Drawer.Screen name="settings" options={{ title: 'Settings', drawerItemStyle: { display: 'none' } }} />
                 <Drawer.Screen name="admin" options={{ title: 'Admin', drawerItemStyle: { display: 'none' } }} />
                 <Drawer.Screen name="commission" options={{ title: 'Commission', drawerItemStyle: { display: 'none' } }} />
@@ -88,6 +89,10 @@ export default function AppLayout() {
               <Tabs.Screen
                 name="members"
                 options={{ title: 'Members' }}
+              />
+              <Tabs.Screen
+                name="operations"
+                options={{ title: 'Ops' }}
               />
               <Tabs.Screen
                 name="admin"

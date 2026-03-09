@@ -54,7 +54,7 @@ export function MemberList({
             user_id: p.user_id!,
             profile: p.profile,
           }));
-  const memberParticipants = participants.filter((p) => p.member_id && p.member?.member_type !== 'informant');
+  const memberParticipants = participants.filter((p) => p.member_id && p.member?.member_type !== 'informant' && p.member?.member_type !== 'soldier');
   const informantParticipants = participants.filter((p) => p.member_id && p.member?.member_type === 'informant');
 
   const participantMemberIds = new Set([...memberParticipants, ...informantParticipants].map((p) => p.member_id));
@@ -66,7 +66,7 @@ export function MemberList({
   if (isCommission && membersByOwner && user) {
     const myEntry = membersByOwner.get(user.id);
     if (myEntry) {
-      const myAddable = myEntry.members.filter((m) => !participantMemberIds.has(m.id) && m.member_type !== 'informant');
+      const myAddable = myEntry.members.filter((m) => !participantMemberIds.has(m.id) && m.member_type !== 'informant' && m.member_type !== 'soldier');
       if (myAddable.length > 0) {
         groupedAddableMembers.set(user.id, { label: 'Add Member', members: myAddable });
       }
@@ -330,7 +330,7 @@ export function MemberList({
 
         {/* Add Member -- flat list for personal sit-downs */}
         {!isCommission && onAddMember && (() => {
-          const addableAI = addableMembers.filter((m) => m.member_type !== 'informant');
+          const addableAI = addableMembers.filter((m) => m.member_type !== 'informant' && m.member_type !== 'soldier');
           const addableInf = addableMembers.filter((m) => m.member_type === 'informant');
           return (
             <>

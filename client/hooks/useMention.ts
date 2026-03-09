@@ -19,8 +19,8 @@ const INITIAL_STATE: MentionState = {
 };
 
 export function useMention(members: Member[], memberOwnerMap?: Map<string, string>) {
-  // Filter out informants — they are push-only data sources, not mentionable
-  const mentionableMembers = useMemo(() => members.filter((m) => m.member_type !== 'informant'), [members]);
+  // Filter out informants (push-only) and soldiers (invoked only by their caporegime)
+  const mentionableMembers = useMemo(() => members.filter((m) => m.member_type !== 'informant' && m.member_type !== 'soldier'), [members]);
   const [state, setState] = useState<MentionState>(INITIAL_STATE);
 
   const handleInput = useCallback(

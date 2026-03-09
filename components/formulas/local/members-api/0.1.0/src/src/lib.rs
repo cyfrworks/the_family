@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
+const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
 
 fn handle_request(input: &str) -> Result<String, String> {
     let parsed: Value =
@@ -42,7 +42,10 @@ fn handle_request(input: &str) -> Result<String, String> {
         .ok_or("Missing required 'access_token'")?;
 
     match action {
-        "list" => list_members(access_token),
+        "list" => {
+            let member_type = parsed.get("member_type").and_then(|v| v.as_str());
+            list_members(access_token, member_type)
+        }
         "create" => {
             let member = parsed
                 .get("member")
@@ -65,6 +68,13 @@ fn handle_request(input: &str) -> Result<String, String> {
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required 'member_id'")?;
             delete_member(access_token, member_id)
+        }
+        "list_crew" => {
+            let caporegime_id = parsed
+                .get("caporegime_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'caporegime_id'")?;
+            list_crew(access_token, caporegime_id)
         }
         "create_informant" => {
             let name = parsed
@@ -93,24 +103,33 @@ fn handle_request(input: &str) -> Result<String, String> {
     }
 }
 
-fn list_members(access_token: &str) -> Result<String, String> {
+fn list_members(access_token: &str, member_type: Option<&str>) -> Result<String, String> {
     let user = fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Could not determine user ID from token")?;
 
-    // Single query with PostgREST resource embedding — joins members with model_catalog
-    // Only return AI members (not informants)
+    let mut filters = vec![
+        json!({ "column": "owner_id", "op": "eq", "value": user_id }),
+    ];
+
+    match member_type {
+        Some(mt) => {
+            filters.push(json!({ "column": "member_type", "op": "eq", "value": mt }));
+        }
+        None => {
+            // Default: return all non-informant, non-soldier members (consul, caporegime, bookkeeper)
+            filters.push(json!({ "column": "member_type", "op": "in", "value": "(consul,caporegime,bookkeeper)" }));
+        }
+    }
+
     let members = supabase_call(
         "db.select",
         json!({
             "table": "members",
             "select": "*,catalog_model:model_catalog(*)",
-            "filters": [
-                { "column": "owner_id", "op": "eq", "value": user_id },
-                { "column": "member_type", "op": "eq", "value": "ai" }
-            ],
+            "filters": filters,
             "order": [{ "column": "created_at", "direction": "desc" }],
             "access_token": access_token
         }),
@@ -131,87 +150,135 @@ fn create_member(access_token: &str, member: &Value) -> Result<String, String> {
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'member.name'")?;
-    let catalog_model_id = member
-        .get("catalog_model_id")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required 'member.catalog_model_id'")?;
     let system_prompt = member
         .get("system_prompt")
         .and_then(|v| v.as_str())
-        .ok_or("Missing required 'member.system_prompt'")?;
+        .unwrap_or("");
 
     if name.trim().is_empty() {
         return Err("Member name cannot be empty".to_string());
     }
 
-    // Validate the catalog model exists and check tier access
-    let caller_profile = supabase_call(
-        "db.select",
-        json!({
-            "table": "profiles",
-            "select": "id,tier",
-            "filters": [
-                { "column": "id", "op": "eq", "value": user_id }
-            ],
-            "access_token": access_token
-        }),
-    )?;
+    let member_type = member.get("member_type").and_then(|v| v.as_str()).unwrap_or("consul");
 
-    let profile = caller_profile
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("Profile not found")?;
-
-    let caller_tier = profile
-        .get("tier")
-        .and_then(|v| v.as_str())
-        .unwrap_or("associate");
-
-    let catalog_models = supabase_call(
-        "db.select",
-        json!({
-            "table": "model_catalog",
-            "select": "id,min_tier,is_active",
-            "filters": [
-                { "column": "id", "op": "eq", "value": catalog_model_id }
-            ],
-            "access_token": access_token
-        }),
-    )?;
-
-    let catalog_model = catalog_models
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or("Catalog model not found")?;
-
-    let is_active = catalog_model
-        .get("is_active")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    if !is_active {
-        return Err("Selected model is not available".to_string());
+    // Validate member_type
+    match member_type {
+        "consul" | "caporegime" | "soldier" | "bookkeeper" => {}
+        _ => return Err(format!("Invalid member_type: {member_type}")),
     }
 
-    // Tier access check: godfather > boss > associate
-    let min_tier = catalog_model
-        .get("min_tier")
-        .and_then(|v| v.as_str())
-        .unwrap_or("associate");
+    // For soldier, validate caporegime_id
+    let caporegime_id = member.get("caporegime_id").and_then(|v| v.as_str());
+    if member_type == "soldier" {
+        let cap_id = caporegime_id.ok_or("Soldiers require 'caporegime_id'")?;
+        // Validate that the caporegime exists and is owned by this user
+        let caps = supabase_call(
+            "db.select",
+            json!({
+                "table": "members",
+                "select": "id",
+                "filters": [
+                    { "column": "id", "op": "eq", "value": cap_id },
+                    { "column": "owner_id", "op": "eq", "value": user_id },
+                    { "column": "member_type", "op": "eq", "value": "caporegime" }
+                ],
+                "access_token": access_token
+            }),
+        )?;
+        let cap_arr = caps.as_array().map(|a| a.len()).unwrap_or(0);
+        if cap_arr == 0 {
+            return Err("Caporegime not found or not owned by you".to_string());
+        }
+    }
 
-    if !tier_has_access(caller_tier, min_tier) {
-        return Err(format!(
-            "Your tier ({caller_tier}) does not have access to this model (requires {min_tier})"
-        ));
+    let catalog_model_id = member.get("catalog_model_id").and_then(|v| v.as_str());
+
+    if catalog_model_id.is_none() || catalog_model_id == Some("") {
+        return Err(format!("Missing required 'member.catalog_model_id' for {member_type}"));
+    }
+
+    // Validate catalog model if provided
+    let mut caller_tier = "associate";
+    if let Some(model_id) = catalog_model_id {
+        if !model_id.is_empty() {
+            let caller_profile = supabase_call(
+                "db.select",
+                json!({
+                    "table": "profiles",
+                    "select": "id,tier",
+                    "filters": [
+                        { "column": "id", "op": "eq", "value": user_id }
+                    ],
+                    "access_token": access_token
+                }),
+            )?;
+
+            let profile = caller_profile
+                .as_array()
+                .and_then(|arr| arr.first())
+                .ok_or("Profile not found")?;
+
+            caller_tier = profile
+                .get("tier")
+                .and_then(|v| v.as_str())
+                .unwrap_or("associate");
+
+            let catalog_models = supabase_call(
+                "db.select",
+                json!({
+                    "table": "model_catalog",
+                    "select": "id,min_tier,is_active",
+                    "filters": [
+                        { "column": "id", "op": "eq", "value": model_id }
+                    ],
+                    "access_token": access_token
+                }),
+            )?;
+
+            let catalog_model = catalog_models
+                .as_array()
+                .and_then(|arr| arr.first())
+                .ok_or("Catalog model not found")?;
+
+            let is_active = catalog_model
+                .get("is_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if !is_active {
+                return Err("Selected model is not available".to_string());
+            }
+
+            let min_tier = catalog_model
+                .get("min_tier")
+                .and_then(|v| v.as_str())
+                .unwrap_or("associate");
+
+            if !tier_has_access(caller_tier, min_tier) {
+                return Err(format!(
+                    "Your tier ({caller_tier}) does not have access to this model (requires {min_tier})"
+                ));
+            }
+        }
     }
 
     // Build insert body
     let mut body = json!({
         "owner_id": user_id,
         "name": name,
-        "catalog_model_id": catalog_model_id,
         "system_prompt": system_prompt,
+        "member_type": member_type,
     });
+
+    if let Some(model_id) = catalog_model_id {
+        if !model_id.is_empty() {
+            body["catalog_model_id"] = json!(model_id);
+        }
+    }
+
+    if let Some(cap_id) = caporegime_id {
+        body["caporegime_id"] = json!(cap_id);
+    }
 
     if let Some(avatar_url) = member.get("avatar_url").and_then(|v| v.as_str()) {
         body["avatar_url"] = json!(avatar_url);
@@ -366,6 +433,49 @@ fn delete_member(access_token: &str, member_id: &str) -> Result<String, String> 
     )?;
 
     Ok(json!({ "deleted": true }).to_string())
+}
+
+fn list_crew(access_token: &str, caporegime_id: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    // Verify the caporegime is owned by this user
+    let cap_check = supabase_call(
+        "db.select",
+        json!({
+            "table": "members",
+            "select": "id",
+            "filters": [
+                { "column": "id", "op": "eq", "value": caporegime_id },
+                { "column": "owner_id", "op": "eq", "value": user_id },
+                { "column": "member_type", "op": "eq", "value": "caporegime" }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    if cap_check.as_array().map(|a| a.len()).unwrap_or(0) == 0 {
+        return Err("Caporegime not found or not owned by you".to_string());
+    }
+
+    let soldiers = supabase_call(
+        "db.select",
+        json!({
+            "table": "members",
+            "select": "*,catalog_model:model_catalog(*)",
+            "filters": [
+                { "column": "caporegime_id", "op": "eq", "value": caporegime_id },
+                { "column": "member_type", "op": "eq", "value": "soldier" }
+            ],
+            "order": [{ "column": "created_at", "direction": "desc" }],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "soldiers": soldiers }).to_string())
 }
 
 fn generate_token() -> Result<(String, String, String), String> {

@@ -38,7 +38,6 @@ export default function SitdownScreen() {
     commissionMembers,
     membersByOwner,
     messages,
-    typingIndicators,
     lastReadAt,
     dividerLastReadAt,
     enteredAt,
@@ -252,7 +251,6 @@ export default function SitdownScreen() {
           members={participantMembers}
           memberOwnerMap={memberOwnerMap}
           messages={messages}
-          typingIndicators={typingIndicators}
           lastReadAt={dividerLastReadAt}
           enteredAt={enteredAt}
           messagesError={messagesError}

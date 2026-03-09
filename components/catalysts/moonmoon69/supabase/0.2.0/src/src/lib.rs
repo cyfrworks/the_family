@@ -121,6 +121,9 @@ fn handle_request(input: &str) -> Result<String, String> {
         // Edge Functions
         "functions.invoke" => functions::invoke(&ctx, &params),
 
+        // Realtime
+        "realtime.broadcast" => realtime_broadcast(&ctx, &params),
+
         _ => Ok(format_error(
             400,
             "unknown_operation",
@@ -181,6 +184,33 @@ pub(crate) fn do_request(method: &str, url: &str, headers: &Value, body: &str) -
         "body": body
     });
     fetch::request(&req.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Realtime broadcast
+// ---------------------------------------------------------------------------
+
+fn realtime_broadcast(ctx: &SupabaseContext, params: &Value) -> Result<String, String> {
+    let topic = require_param(params, "topic")?;
+    let event = require_param(params, "event")?;
+    let payload = params.get("payload").cloned().unwrap_or(json!({}));
+
+    let url = format!("{}/realtime/v1/api/broadcast", ctx.url);
+    let headers = build_headers(&ctx.publishable_key, None);
+    let body = json!({
+        "messages": [{
+            "topic": format!("realtime:{topic}"),
+            "event": "broadcast",
+            "payload": {
+                "type": "broadcast",
+                "event": event,
+                "payload": payload
+            }
+        }]
+    });
+
+    let resp = do_request("POST", &url, &headers, &body.to_string());
+    Ok(parse_response(&resp))
 }
 
 pub(crate) fn parse_response(resp_str: &str) -> String {

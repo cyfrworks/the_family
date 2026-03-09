@@ -2,13 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, View, Text } from 'react-native';
 import { ChevronDown } from 'lucide-react-native';
 import { useSendMessage } from '../../hooks/useSendMessage';
+import { useMemberProgress, type MemberProgress } from '../../hooks/useMemberProgress';
 import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
-import { TypingIndicator } from './TypingIndicator';
+import { MemberProgressCard } from './MemberProgressCard';
 import { toast } from '../../lib/toast';
 import type { Message, Member } from '../../lib/types';
-import type { RemoteTypingIndicator } from '../../hooks/useMessages';
 import type { FriendlyError } from '../../lib/error-messages';
+
+// Persistent progress that stays with messages even after the realtime entry is cleaned up
+interface CompletedProgress {
+  statusText: string;
+  toolsUsed: string[];
+  totalTokens: number;
+  events: MemberProgress['events'];
+  streamedContent: string;
+}
 
 interface ChatViewProps {
   sitDownId: string;
@@ -18,7 +27,6 @@ interface ChatViewProps {
   onToggleMembers?: () => void;
   showMembers?: boolean;
   messages: Message[];
-  typingIndicators: RemoteTypingIndicator[];
   lastReadAt?: string | null;
   enteredAt?: string | null;
   messagesError: FriendlyError | null;
@@ -35,7 +43,6 @@ export function ChatView({
   onToggleMembers,
   showMembers,
   messages,
-  typingIndicators,
   lastReadAt,
   enteredAt,
   messagesError,
@@ -44,7 +51,35 @@ export function ChatView({
   refetchMessages,
 }: ChatViewProps) {
   const send = useSendMessage(sitDownId);
+  const memberProgress = useMemberProgress(sitDownId);
   const flatListRef = useRef<FlatList<Message>>(null);
+
+  // Persist completed progress so it survives the 60s cleanup in useMemberProgress
+  const completedProgressRef = useRef<Map<string, CompletedProgress>>(new Map());
+
+  // Split progress: active (in-progress, shown at bottom) vs completed (matched to a message, shown inline)
+  const { activeProgress, messageProgressMap } = useMemo(() => {
+    const active: MemberProgress[] = [];
+    const map = new Map<string, CompletedProgress>(completedProgressRef.current);
+
+    for (const p of memberProgress) {
+      if (p.completed && p.messageId) {
+        const entry: CompletedProgress = {
+          statusText: p.statusText,
+          toolsUsed: p.toolsUsed,
+          totalTokens: p.totalTokens,
+          events: p.events,
+          streamedContent: p.streamedContent,
+        };
+        map.set(p.messageId, entry);
+        completedProgressRef.current.set(p.messageId, entry);
+      } else {
+        active.push(p);
+      }
+    }
+
+    return { activeProgress: active, messageProgressMap: map };
+  }, [memberProgress]);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
 
@@ -62,22 +97,6 @@ export function ChatView({
     return map;
   }, [messages]);
 
-  // Remote typing indicators from the server (inserted by sit-down formula).
-  // Drop stale indicators for members that already have a newer message.
-  const allTyping = useMemo(() => {
-    const latestMsgByMember = new Map<string, string>();
-    for (const msg of messages) {
-      if (msg.sender_member_id) latestMsgByMember.set(msg.sender_member_id, msg.created_at);
-    }
-
-    return typingIndicators
-      .filter((t) => {
-        const latest = latestMsgByMember.get(t.member_id);
-        return !latest || new Date(latest) < new Date(t.started_at);
-      })
-      .filter((t) => Date.now() - new Date(t.started_at).getTime() < 120_000)
-      .map((t) => ({ memberId: t.member_id, memberName: t.member_name }));
-  }, [typingIndicators, messages]);
 
   // Find the first unread message from someone else (in original order) for the "New messages" divider.
   // Only consider messages between lastReadAt and enteredAt — messages arriving via realtime
@@ -85,10 +104,11 @@ export function ChatView({
   const [hideDivider, setHideDivider] = useState(false);
   const initialMsgCount = useRef<number | null>(null);
 
-  // Reset divider state when switching sitdowns
+  // Reset divider state and completed progress when switching sitdowns
   useEffect(() => {
     setHideDivider(false);
     initialMsgCount.current = null;
+    completedProgressRef.current = new Map();
   }, [sitDownId]);
 
   const firstUnreadIndex = useMemo(() => {
@@ -165,7 +185,7 @@ export function ChatView({
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     }
-  }, [messages.length, allTyping.length]);
+  }, [messages.length, activeProgress.length]);
 
   function handleScroll(event: { nativeEvent: { contentOffset: { y: number } } }) {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -205,6 +225,8 @@ export function ChatView({
       const originalIndex = messageIndexMap.get(item.id);
       const showDivider = firstUnreadIndex >= 0 && originalIndex === firstUnreadIndex;
 
+      const progress = messageProgressMap.get(item.id);
+
       return (
         <View>
           {showDivider && (
@@ -219,11 +241,12 @@ export function ChatView({
             replyTo={msgReplyTo}
             onReply={setReplyTo}
             onScrollToMessage={scrollToMessage}
+            progress={progress}
           />
         </View>
       );
     },
-    [messages, scrollToMessage, firstUnreadIndex, messageIndexMap],
+    [messages, scrollToMessage, firstUnreadIndex, messageIndexMap, messageProgressMap],
   );
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
@@ -233,9 +256,9 @@ export function ChatView({
     // In inverted list, "header" renders at the bottom (visually)
     return (
       <View>
-        {/* Typing indicators */}
-        {allTyping.map((p) => (
-          <TypingIndicator key={p.memberId} memberName={p.memberName} />
+        {/* In-progress member cards only — completed progress is shown inline with messages */}
+        {activeProgress.map((p: MemberProgress) => (
+          <MemberProgressCard key={p.memberId} progress={p} />
         ))}
 
         {/* Send error */}
@@ -249,7 +272,7 @@ export function ChatView({
         )}
       </View>
     );
-  }, [allTyping, displayError]);
+  }, [activeProgress, displayError]);
 
   const ListFooterComponent = useMemo(() => {
     // In inverted list, "footer" renders at the top (visually)
@@ -297,7 +320,7 @@ export function ChatView({
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           inverted
-          extraData={[allTyping, firstUnreadIndex]}
+          extraData={[activeProgress, messageProgressMap, firstUnreadIndex]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           ListHeaderComponent={renderListHeader}

@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
+const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
 
 fn handle_request(input: &str) -> Result<String, String> {
     let parsed: Value =

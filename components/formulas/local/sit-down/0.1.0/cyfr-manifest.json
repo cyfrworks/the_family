@@ -88,7 +88,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.3.1",
         "reason": "Database operations: CRUD, participants, messages, typing indicators"
       },
       {
@@ -114,6 +114,18 @@
       {
         "ref": "reagent:local.mention-parser:0.1.0",
         "reason": "Parse @mentions from message text server-side"
+      },
+      {
+        "ref": "formula:local.consul:0.1.0",
+        "reason": "Consul member — single-shot LLM advisor"
+      },
+      {
+        "ref": "formula:local.caporegime:0.1.0",
+        "reason": "Caporegime member — agentic orchestrator with tools"
+      },
+      {
+        "ref": "formula:local.bookkeeper:0.1.0",
+        "reason": "Bookkeeper member — knowledge retrieval and synthesis"
       }
     ]
   },

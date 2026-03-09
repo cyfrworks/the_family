@@ -5,6 +5,11 @@
 		reverse_proxy cyfr:4000
 	}
 
+	# CYFR execution event streaming (SSE)
+	handle /api/* {
+		reverse_proxy cyfr:4000
+	}
+
 	# Informant REST endpoint — proxied to inform-proxy sidecar
 	handle /inform {
 		reverse_proxy inform-proxy:4002

@@ -1,25 +1,30 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import type { Member } from '../lib/types';
+import type { Member, MemberType } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 
 const MEMBERS_API_REF = 'formula:local.members-api:0.1.0';
 
-export function useMembers() {
+export function useMembers(memberType?: MemberType) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  const queryKey = memberType ? ['members', memberType] : ['members'];
+
   const { data: members = [], isLoading: loading } = useQuery<Member[]>({
-    queryKey: ['members'],
+    queryKey,
     queryFn: async () => {
       const accessToken = getAccessToken();
       if (!accessToken) return [];
 
+      const input: Record<string, unknown> = { action: 'list', access_token: accessToken };
+      if (memberType) input.member_type = memberType;
+
       const result = await cyfrCall('execution', {
         action: 'run',
         reference: MEMBERS_API_REF,
-        input: { action: 'list', access_token: accessToken },
+        input,
         type: 'formula',
         timeout: 30000,
       });
@@ -35,9 +40,11 @@ export function useMembers() {
 
   async function createMember(member: {
     name: string;
-    catalog_model_id: string;
+    catalog_model_id?: string;
     system_prompt: string;
     avatar_url?: string;
+    member_type?: MemberType;
+    caporegime_id?: string;
   }) {
     const accessToken = getAccessToken();
     if (!accessToken) throw new Error('Not authenticated');
@@ -55,7 +62,6 @@ export function useMembers() {
 
     const created = res?.member as Member;
     await queryClient.invalidateQueries({ queryKey: ['members'] });
-    // Also refresh sit-down enter data (commission_members depends on this)
     queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter'] });
     return created;
   }
@@ -94,9 +100,35 @@ export function useMembers() {
     const res = result as Record<string, unknown> | null;
     if (res?.error) throw new Error((res.error as Record<string, string>).message);
 
-    queryClient.setQueryData<Member[]>(['members'], (old) => old?.filter((m) => m.id !== id));
+    queryClient.setQueryData<Member[]>(queryKey, (old) => old?.filter((m) => m.id !== id));
     queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter'] });
   }
 
-  return { members, loading, createMember, updateMember, deleteMember, refetch: () => queryClient.invalidateQueries({ queryKey: ['members'] }) };
+  async function listCrew(caporegimeId: string): Promise<Member[]> {
+    const accessToken = getAccessToken();
+    if (!accessToken) throw new Error('Not authenticated');
+
+    const result = await cyfrCall('execution', {
+      action: 'run',
+      reference: MEMBERS_API_REF,
+      input: { action: 'list_crew', access_token: accessToken, caporegime_id: caporegimeId },
+      type: 'formula',
+      timeout: 30000,
+    });
+
+    const res = result as Record<string, unknown> | null;
+    if (res?.error) throw new Error((res.error as Record<string, string>).message);
+
+    return (res?.soldiers as Member[]) || [];
+  }
+
+  return {
+    members,
+    loading,
+    createMember,
+    updateMember,
+    deleteMember,
+    listCrew,
+    refetch: () => queryClient.invalidateQueries({ queryKey: ['members'] }),
+  };
 }

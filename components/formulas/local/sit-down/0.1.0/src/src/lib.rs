@@ -29,14 +29,12 @@ bindings::export!(Component with_types_in bindings);
 // Constants
 // ---------------------------------------------------------------------------
 
-const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase:0.2.0";
-const CLAUDE_REF: &str = "catalyst:moonmoon69.claude:1.0.0";
-const OPENAI_REF: &str = "catalyst:moonmoon69.openai:1.0.0";
-const GEMINI_REF: &str = "catalyst:moonmoon69.gemini:1.0.0";
-const OPENROUTER_REF: &str = "catalyst:moonmoon69.openrouter:1.0.0";
-const GROK_REF: &str = "catalyst:moonmoon69.grok:1.0.0";
+const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
 const MENTION_PARSER_REF: &str = "reagent:local.mention-parser:0.1.0";
 const SELF_REF: &str = "formula:local.sit-down:0.1.0";
+const CONSUL_REF: &str = "formula:local.consul:0.1.0";
+const CAPOREGIME_REF: &str = "formula:local.caporegime:0.1.0";
+const BOOKKEEPER_REF: &str = "formula:local.bookkeeper:0.1.0";
 const MAX_ALL_MENTIONS: usize = 5;
 const MAX_CONTEXT_MESSAGES: usize = 50;
 
@@ -168,7 +166,9 @@ fn handle_request(input: &str) -> Result<String, String> {
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required 'content'")?;
             let reply_to_id = parsed.get("reply_to_id").and_then(|v| v.as_str());
-            send_message(access_token, sit_down_id, content, reply_to_id)
+            let client_participants = parsed.get("participants").cloned();
+            let client_messages = parsed.get("messages").cloned();
+            send_message(access_token, sit_down_id, content, reply_to_id, client_participants, client_messages)
         }
 
         // Internal: AI member response (spawned by send_message)
@@ -260,6 +260,14 @@ fn leave_sit_down(access_token: &str, sit_down_id: &str) -> Result<String, Strin
             "access_token": access_token
         }),
     )?;
+
+    // Fire-and-forget: broadcast failure is acceptable, participant removal propagates via postgres_changes
+    let _ = supabase_call_once("realtime.broadcast", json!({
+        "topic": "family:global",
+        "event": "participant_left",
+        "payload": { "user_id": user_id, "sit_down_id": sit_down_id },
+        "access_token": access_token
+    }));
 
     Ok(json!({ "left": true }).to_string())
 }
@@ -755,22 +763,28 @@ fn send_message(
     sit_down_id: &str,
     content: &str,
     reply_to_id: Option<&str>,
+    client_participants: Option<Value>,
+    client_messages: Option<Value>,
 ) -> Result<String, String> {
     // 1. Extract user_id from JWT (no Supabase call — RLS validates on subsequent queries)
     let user_id = user_id_from_jwt(access_token)?;
 
-    // 2. Fetch sit-down participants
-    let participants = supabase_call(
-        "db.select",
-        json!({
-            "table": "sit_down_participants",
-            "select": "id,user_id,member_id,profile:profiles(id,display_name),member:members(id,name,owner_id,system_prompt,catalog_model:model_catalog(id,provider,model,alias)),sit_down:sit_downs(id,name,is_commission)",
-            "filters": [
-                { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
-            ],
-            "access_token": access_token
-        }),
-    )?;
+    // 2. Fetch sit-down participants (use client-provided data if available, else DB fetch)
+    let participants = if let Some(cp) = client_participants {
+        cp
+    } else {
+        supabase_call(
+            "db.select",
+            json!({
+                "table": "sit_down_participants",
+                "select": "id,user_id,member_id,profile:profiles(id,display_name),member:members(id,name,member_type,owner_id,system_prompt,catalog_model:model_catalog(id,provider,model,alias)),sit_down:sit_downs(id,name,is_commission)",
+                "filters": [
+                    { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
+                ],
+                "access_token": access_token
+            }),
+        )?
+    };
     let participants_arr = participants
         .as_array()
         .ok_or("Expected participants array")?;
@@ -783,7 +797,7 @@ fn send_message(
         return Err("Not a participant of this sit-down".to_string());
     }
 
-    // Extract member list for mention parsing (exclude informants — they are data-only)
+    // Extract member list for mention parsing (exclude informants and soldiers — not mentionable)
     let members: Vec<Value> = participants_arr
         .iter()
         .filter_map(|p| {
@@ -791,8 +805,8 @@ fn send_message(
             if m.is_null() {
                 return None;
             }
-            let member_type = m.get("member_type").and_then(|v| v.as_str()).unwrap_or("ai");
-            if member_type == "informant" {
+            let member_type = m.get("member_type").and_then(|v| v.as_str()).unwrap_or("consul");
+            if member_type == "informant" || member_type == "soldier" {
                 return None;
             }
             Some(json!({
@@ -885,19 +899,80 @@ fn send_message(
         .cloned()
         .unwrap_or(Value::Null);
 
-    let messages = supabase_call(
-        "db.select",
-        json!({
-            "table": "messages",
-            "select": "id,content,sender_type,sender_user_id,sender_member_id,created_at,profile:profiles(display_name),member:members(id,name,owner_id)",
-            "filters": [
-                { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
-            ],
-            "order": [{ "column": "created_at", "direction": "desc" }],
-            "limit": MAX_CONTEXT_MESSAGES,
-            "access_token": access_token
-        }),
-    )?;
+    // Use client-provided messages if available, appending the just-inserted user message
+    let inserted_row = inserted
+        .as_array()
+        .and_then(|arr| arr.first())
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    let mut messages = if let Some(mut cm) = client_messages {
+        // Append the newly inserted message so AI sees it in context
+        if let Some(arr) = cm.as_array_mut() {
+            let don_profile = participants_arr.iter()
+                .find(|p| p.get("user_id").and_then(|v| v.as_str()) == Some(&user_id))
+                .and_then(|p| p.get("profile").cloned())
+                .unwrap_or(Value::Null);
+            arr.push(json!({
+                "id": message_id,
+                "content": content,
+                "sender_type": "don",
+                "sender_user_id": user_id,
+                "sender_member_id": null,
+                "created_at": inserted_row.get("created_at").cloned().unwrap_or(Value::Null),
+                "profile": don_profile,
+            }));
+        }
+        cm
+    } else {
+        supabase_call(
+            "db.select",
+            json!({
+                "table": "messages",
+                "select": "id,content,sender_type,sender_user_id,sender_member_id,created_at,profile:profiles(display_name),member:members(id,name,owner_id)",
+                "filters": [
+                    { "column": "sit_down_id", "op": "eq", "value": sit_down_id }
+                ],
+                "order": [{ "column": "created_at", "direction": "desc" }],
+                "limit": MAX_CONTEXT_MESSAGES,
+                "access_token": access_token
+            }),
+        )?
+    };
+
+    // Augment last message with reply context so the AI knows what's being replied to
+    if let Some(rid) = reply_to_id {
+        let reply_quote = messages.as_array().and_then(|arr| {
+            let replied = arr.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(rid))?;
+            let sender_type = replied.get("sender_type").and_then(|v| v.as_str()).unwrap_or("");
+            let sender_name = if sender_type == "don" {
+                let dn = replied.get("profile")
+                    .and_then(|v| v.get("display_name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Don");
+                format!("Don {dn}")
+            } else {
+                replied.get("member")
+                    .and_then(|v| v.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string()
+            };
+            let rc = replied.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            // Truncate long replies to avoid bloating context
+            let truncated = if rc.len() > 300 { format!("{}...", &rc[..300]) } else { rc.to_string() };
+            Some(format!("[replying to {sender_name}: \"{truncated}\"]"))
+        });
+
+        if let Some(quote) = reply_quote {
+            if let Some(arr) = messages.as_array_mut() {
+                if let Some(last) = arr.last_mut() {
+                    let orig = last.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    last["content"] = json!(format!("{quote}\n{orig}"));
+                }
+            }
+        }
+    }
 
     // Pre-fetch context to pass to each spawned _respond_member
     let context = json!({
@@ -1072,6 +1147,20 @@ fn respond_member(
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown");
 
+    let member_type = member
+        .get("member_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("consul");
+
+    // Informants and soldiers cannot respond — skip silently
+    if member_type == "informant" || member_type == "soldier" {
+        return Ok(json!({
+            "message_id": "",
+            "content": "",
+            "skipped": true
+        }).to_string());
+    }
+
     let catalog_model = member
         .get("catalog_model")
         .filter(|v| !v.is_null())
@@ -1087,54 +1176,115 @@ fn respond_member(
         .and_then(|v| v.as_str())
         .ok_or("catalog_model missing 'model'")?;
 
-    // 2. Insert typing indicator
-    insert_typing_indicator(sit_down_id, member_id, member_name, user_id, access_token);
+    // 2. Resolve catalyst reference from provider
+    let (catalyst_ref, _) = resolve_provider_ref(provider)?;
 
     // 3. Build system prompt + conversation history
     let system_prompt = build_system_prompt(&member, sit_down, participants);
     let conversation = build_conversation_history(member_id, messages, sit_down, participants);
 
-    // 4. Invoke AI catalyst
-    let ai_result = invoke_ai_provider(provider, model, &system_prompt, &conversation);
+    // 5. Resolve the formula ref based on member_type
+    let formula_ref = match member_type {
+        "caporegime" => CAPOREGIME_REF,
+        "bookkeeper" => BOOKKEEPER_REF,
+        _ => CONSUL_REF,
+    };
 
-    // 5. Typing indicator cleanup is handled inside insert_ai_message RPC
-
-    let content = ai_result?;
-
-    // 6. Insert AI response via RPC (also cleans up typing indicator in same DB call)
-    let mut metadata = json!({
-        "provider": provider,
-        "model": model
+    let mut fm_input = json!({
+        "catalyst_ref": catalyst_ref,
+        "model": model,
+        "member": member,
+        "sit_down_id": sit_down_id,
+        "member_id": member_id,
+        "conversation": conversation,
+        "system": system_prompt,
+        "access_token": access_token,
+        "context": {
+            "owner_id": user_id,
+            "participants": participants,
+            "sit_down": sit_down
+        }
     });
     if let Some(rid) = reply_to_id {
-        metadata["reply_to_id"] = json!(rid);
+        fm_input["reply_to_id"] = json!(rid);
     }
 
-    let rpc_result = supabase_call(
-        "db.rpc",
-        json!({
-            "function": "insert_ai_message",
-            "body": {
-                "p_sit_down_id": sit_down_id,
-                "p_sender_member_id": member_id,
-                "p_content": content,
-                "p_metadata": metadata
-            },
-            "access_token": access_token
-        }),
-    )?;
+    let fm_request = json!({
+        "tool": "execution",
+        "action": "run",
+        "args": {
+            "reference": formula_ref,
+            "input": fm_input,
+            "type": "formula"
+        }
+    });
 
-    let message_id = rpc_result
-        .get("id")
+    let fm_response_str = invoke::call(&fm_request.to_string());
+    let fm_response: Value = serde_json::from_str(&fm_response_str)
+        .map_err(|e| format!("Failed to parse {} response: {e}", member_type))?;
+
+    if let Some(err) = fm_response.get("error") {
+        return Err(format!("{} invoke error: {err}", member_type));
+    }
+
+    let fm_output = fm_response.get("output").cloned().unwrap_or(Value::Null);
+    let fm_raw = fm_output.get("result").cloned().unwrap_or(Value::Null);
+    let fm_result = match &fm_raw {
+        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(fm_raw.clone()),
+        _ => fm_raw,
+    };
+
+    if let Some(err) = fm_result.get("error") {
+        return Err(format!("{} error: {err}", member_type));
+    }
+
+    let content = fm_result
+        .get("content")
         .and_then(|v| v.as_str())
-        .or_else(|| {
-            rpc_result.as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|row| row.get("id"))
-                .and_then(|v| v.as_str())
-        })
         .unwrap_or("")
         .to_string();
+
+    if content.is_empty() {
+        return Err(format!("Empty response from {member_name}"));
+    }
+
+    // Check if the formula already inserted the message (caporegime)
+    let has_message_id = fm_result
+        .get("message_id")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+
+    let message_id = if has_message_id {
+        // Formula already inserted (caporegime, for now)
+        fm_result
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        // Sit-down inserts (consul, bookkeeper)
+        let mut metadata = json!({
+            "provider": catalyst_ref,
+            "model": model
+        });
+        if let Some(rid) = reply_to_id {
+            metadata["reply_to_id"] = json!(rid);
+        }
+        // Forward extra fields from formula result
+        if let Some(op_id) = fm_result.get("operation_id").and_then(|v| v.as_str()) {
+            metadata["operation_id"] = json!(op_id);
+        }
+
+        let mid = insert_ai_message(sit_down_id, member_id, &content, &metadata, access_token)
+            .unwrap_or_default();
+
+        // Emit message_inserted event
+        emit_sit_down_event(sit_down_id, member_id, member_name,
+            json!({"kind": "message_inserted", "message_id": mid}));
+
+        mid
+    };
 
     Ok(json!({
         "message_id": message_id,
@@ -1292,9 +1442,14 @@ fn build_conversation_history(
         })
         .unwrap_or_default();
 
-    let recent: Vec<&Value> = msgs.iter().rev().collect();
+    let mut sorted: Vec<&Value> = msgs.iter().collect();
+    sorted.sort_by(|a, b| {
+        let a_ts = a.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+        let b_ts = b.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
+        a_ts.cmp(b_ts)
+    });
 
-    let mut history: Vec<Value> = recent
+    let mut history: Vec<Value> = sorted
         .iter()
         .map(|msg| {
             let sender_type = msg.get("sender_type").and_then(|v| v.as_str()).unwrap_or("");
@@ -1346,259 +1501,13 @@ fn build_conversation_history(
 
 fn resolve_provider_ref(provider: &str) -> Result<(String, String), String> {
     match provider.to_lowercase().as_str() {
-        "claude" => Ok((CLAUDE_REF.to_string(), "claude".to_string())),
-        "openai" => Ok((OPENAI_REF.to_string(), "openai".to_string())),
-        "gemini" => Ok((GEMINI_REF.to_string(), "gemini".to_string())),
-        "openrouter" => Ok((OPENROUTER_REF.to_string(), "openrouter".to_string())),
-        "grok" => Ok((GROK_REF.to_string(), "grok".to_string())),
+        "claude" => Ok(("catalyst:moonmoon69.claude:1.0.0".to_string(), "claude".to_string())),
+        "openai" => Ok(("catalyst:moonmoon69.openai:1.0.0".to_string(), "openai".to_string())),
+        "gemini" => Ok(("catalyst:moonmoon69.gemini:1.0.0".to_string(), "gemini".to_string())),
+        "openrouter" => Ok(("catalyst:moonmoon69.openrouter:1.0.0".to_string(), "openrouter".to_string())),
+        "grok" => Ok(("catalyst:moonmoon69.grok:1.0.0".to_string(), "grok".to_string())),
         _ => Err(format!("Unsupported AI provider: '{provider}'")),
     }
-}
-
-fn invoke_ai_provider(
-    provider: &str,
-    model: &str,
-    system: &str,
-    messages: &[Value],
-) -> Result<String, String> {
-    let (component_ref, catalyst_name) = resolve_provider_ref(provider)?;
-
-    let catalyst_input = build_provider_request(&catalyst_name, model, messages, system);
-
-    let invoke_request = json!({
-        "tool": "execution",
-        "action": "run",
-        "args": {
-            "reference": &component_ref,
-            "input": catalyst_input,
-            "type": "catalyst"
-        }
-    });
-
-    let response_str = invoke::call(&invoke_request.to_string());
-
-    let response: Value = serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse AI response: {e}"))?;
-
-    if let Some(err) = response.get("error") {
-        return Err(format!("AI invoke error: {err}"));
-    }
-
-    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
-    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
-    let catalyst_result = match &raw_result {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
-        _ => raw_result,
-    };
-
-    if let Some(err) = catalyst_result.get("error") {
-        let fallback = err.to_string();
-        let err_msg = err
-            .get("message")
-            .or_else(|| err.get("error").and_then(|e| e.get("message")))
-            .and_then(|v| v.as_str())
-            .unwrap_or(&fallback);
-        return Err(err_msg.to_string());
-    }
-
-    let data = catalyst_result.get("data").cloned().unwrap_or(Value::Null);
-    let content = extract_content(&data, &catalyst_name);
-
-    if content.is_empty() {
-        return Err("Empty response from AI provider".to_string());
-    }
-
-    Ok(content)
-}
-
-fn build_provider_request(
-    catalyst_name: &str,
-    model: &str,
-    messages: &[Value],
-    system: &str,
-) -> Value {
-    let lower = catalyst_name.to_lowercase();
-
-    if lower.contains("claude") {
-        json!({
-            "operation": "messages.create",
-            "params": {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "max_tokens": 4096,
-                "tools": [
-                    { "type": "web_search_20250305", "name": "web_search", "max_uses": 3 },
-                    { "type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5, "citations": { "enabled": true } }
-                ]
-            }
-        })
-    } else if lower.contains("openai") {
-        json!({
-            "operation": "responses.create",
-            "params": {
-                "model": model,
-                "instructions": system,
-                "input": messages,
-                "tools": [{ "type": "web_search_preview" }],
-                "max_output_tokens": 4096
-            }
-        })
-    } else if lower.contains("grok") {
-        json!({
-            "operation": "responses.create",
-            "params": {
-                "model": model,
-                "instructions": system,
-                "input": messages,
-                "tools": [{ "type": "web_search" }, { "type": "x_search" }],
-                "max_output_tokens": 4096
-            }
-        })
-    } else if lower.contains("openrouter") {
-        let mut all_messages = vec![json!({"role": "system", "content": system})];
-        all_messages.extend_from_slice(messages);
-        json!({
-            "operation": "chat.completions.create",
-            "params": {
-                "model": model,
-                "messages": all_messages,
-                "max_tokens": 4096,
-                "plugins": [{ "id": "web" }]
-            }
-        })
-    } else if lower.contains("gemini") {
-        let contents: Vec<Value> = messages
-            .iter()
-            .map(|msg| {
-                let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
-                let gemini_role = if role == "assistant" { "model" } else { "user" };
-                let text = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                json!({
-                    "role": gemini_role,
-                    "parts": [{ "text": text }]
-                })
-            })
-            .collect();
-
-        json!({
-            "operation": "generate",
-            "params": {
-                "model": model,
-                "systemInstruction": { "parts": [{ "text": system }] },
-                "contents": contents,
-                "generationConfig": { "maxOutputTokens": 4096 },
-                "tools": [{ "google_search": {} }, { "url_context": {} }]
-            }
-        })
-    } else {
-        json!({
-            "operation": "chat.create",
-            "params": {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "max_tokens": 4096
-            }
-        })
-    }
-}
-
-fn extract_content(data: &Value, catalyst_name: &str) -> String {
-    if let Some(text) = data.get("combined_text").and_then(|v| v.as_str()) {
-        return text.to_string();
-    }
-
-    let lower = catalyst_name.to_lowercase();
-
-    if lower.contains("claude") {
-        if let Some(content) = data.get("content").and_then(|v| v.as_array()) {
-            return content
-                .iter()
-                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("text"))
-                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-        }
-    } else if lower.contains("openai") {
-        if let Some(output) = data.get("output").and_then(|v| v.as_array()) {
-            let text: String = output
-                .iter()
-                .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("message"))
-                .filter_map(|item| item.get("content").and_then(|v| v.as_array()))
-                .flatten()
-                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("output_text"))
-                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-            if !text.is_empty() {
-                return text;
-            }
-        }
-        if let Some(text) = data
-            .get("choices")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            return text.to_string();
-        }
-    } else if lower.contains("grok") {
-        if let Some(output) = data.get("output").and_then(|v| v.as_array()) {
-            let text: String = output
-                .iter()
-                .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("message"))
-                .filter_map(|item| item.get("content").and_then(|v| v.as_array()))
-                .flatten()
-                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("output_text"))
-                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-            if !text.is_empty() {
-                return text;
-            }
-        }
-        if let Some(text) = data
-            .get("choices")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            return text.to_string();
-        }
-    } else if lower.contains("openrouter") {
-        if let Some(text) = data
-            .get("choices")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            return text.to_string();
-        }
-    } else if lower.contains("gemini") {
-        if let Some(text) = data
-            .get("candidates")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|candidate| candidate.get("content"))
-            .and_then(|content| content.get("parts"))
-            .and_then(|v| v.as_array())
-        {
-            return text
-                .iter()
-                .filter_map(|part| part.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-        }
-    }
-
-    String::new()
 }
 
 // ---------------------------------------------------------------------------
@@ -1699,6 +1608,54 @@ fn fetch_user(access_token: &str) -> Result<Value, String> {
     }
 }
 
+fn insert_ai_message(
+    sit_down_id: &str,
+    member_id: &str,
+    content: &str,
+    metadata: &Value,
+    access_token: &str,
+) -> Result<String, String> {
+    let rpc_result = supabase_call(
+        "db.rpc",
+        json!({
+            "function": "insert_ai_message",
+            "body": {
+                "p_sit_down_id": sit_down_id,
+                "p_sender_member_id": member_id,
+                "p_content": content,
+                "p_metadata": metadata
+            },
+            "access_token": access_token
+        }),
+    )?;
+
+    let message_id = rpc_result
+        .get("id")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            rpc_result
+                .as_array()
+                .and_then(|arr| arr.first())
+                .and_then(|row| row.get("id"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("")
+        .to_string();
+
+    Ok(message_id)
+}
+
+// Fire-and-forget event emission for sit-down orchestration
+fn emit_sit_down_event(sit_down_id: &str, member_id: &str, member_name: &str, event: Value) {
+    let mut payload = event;
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("member_id".into(), json!(member_id));
+        obj.insert("member_name".into(), json!(member_name));
+        obj.insert("sit_down_id".into(), json!(sit_down_id));
+    }
+    let _ = invoke::emit(&payload.to_string());
+}
+
 fn parse_mentions(text: &str, members: &[Value], dons: &[Value]) -> Result<Value, String> {
     let request = json!({
         "tool": "execution",
@@ -1777,21 +1734,3 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn insert_typing_indicator(sit_down_id: &str, member_id: &str, member_name: &str, user_id: &str, access_token: &str) {
-    // Upsert so existing rows get updated instead of throwing a PK violation.
-    // Cleanup happens inside insert_ai_message RPC when the AI response is saved.
-    let _ = supabase_call_once(
-        "db.upsert",
-        json!({
-            "table": "typing_indicators",
-            "body": {
-                "sit_down_id": sit_down_id,
-                "member_id": member_id,
-                "member_name": member_name,
-                "started_by": user_id
-            },
-            "on_conflict": "sit_down_id,member_id",
-            "access_token": access_token
-        }),
-    );
-}

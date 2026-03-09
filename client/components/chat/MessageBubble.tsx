@@ -6,14 +6,21 @@ import { MessageContent } from './MessageContent';
 import { PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
 import type { Message } from '../../lib/types';
 
+interface CompletedProgress {
+  statusText: string;
+  toolsUsed: string[];
+  totalTokens: number;
+}
+
 interface MessageBubbleProps {
   message: Message;
   replyTo?: Message;
   onReply?: (message: Message) => void;
   onScrollToMessage?: (messageId: string) => void;
+  progress?: CompletedProgress;
 }
 
-export function MessageBubble({ message, replyTo, onReply, onScrollToMessage }: MessageBubbleProps) {
+export function MessageBubble({ message, replyTo, onReply, onScrollToMessage, progress }: MessageBubbleProps) {
   const isDon = message.sender_type === 'don';
   const time = formatDistanceToNow(new Date(message.created_at), { addSuffix: true });
   const highlightOpacity = useRef(new Animated.Value(0)).current;
@@ -161,6 +168,14 @@ export function MessageBubble({ message, replyTo, onReply, onScrollToMessage }: 
             )}
             <Text className="text-[10px] text-stone-600">{time}</Text>
           </View>
+          {progress && (
+            <View className="flex-row items-center gap-1.5 mt-0.5">
+              <Text className="text-[10px] text-yellow-500/50">{'\u2713'}</Text>
+              <Text className="text-[10px] text-stone-600" numberOfLines={1}>
+                {progress.statusText}
+              </Text>
+            </View>
+          )}
           {replyQuote}
           <View className="mt-1 rounded-lg bg-stone-700/25 px-3 py-2 flex-row items-end">
             <View className="flex-1">

@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
 import { useAuth } from './AuthContext';
-import { broadcastLeave } from '../lib/realtime-hub';
 import type { SitDown } from '../lib/types';
 
 const SIT_DOWN_REF = 'formula:local.sit-down:0.1.0';
@@ -86,8 +85,6 @@ export function FamilySitDownProvider({ children }: { children: ReactNode }) {
     if (res?.error) throw new Error((res.error as Record<string, string>).message);
 
     queryClient.setQueryData<SitDown[]>(['sitDowns'], (old) => old?.filter((s) => s.id !== id));
-
-    if (user?.id) broadcastLeave(user.id, id);
   }
 
   function markSitDownAsRead(id: string) {

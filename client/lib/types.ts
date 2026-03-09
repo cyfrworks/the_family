@@ -20,7 +20,7 @@ export interface Profile {
   created_at: string;
 }
 
-export type MemberType = 'ai' | 'informant';
+export type MemberType = 'consul' | 'informant' | 'caporegime' | 'soldier' | 'bookkeeper';
 
 export interface Member {
   id: string;
@@ -31,9 +31,42 @@ export interface Member {
   avatar_url: string | null;
   created_at: string;
   member_type?: MemberType;
+  caporegime_id?: string | null;
   token_prefix?: string;
   last_used_at?: string | null;
   catalog_model?: CatalogModel;
+}
+
+export interface Operation {
+  id: string;
+  member_id: string;
+  owner_id: string;
+  sit_down_id: string | null;
+  trigger_message_id: string | null;
+  status: 'running' | 'completed' | 'failed';
+  task_summary: string | null;
+  result_content: string | null;
+  turns_used: number;
+  tool_calls: unknown[];
+  usage: Record<string, unknown>;
+  cron_job_id: string | null;
+  started_at: string;
+  completed_at: string | null;
+  member?: Member;
+}
+
+export interface BookkeeperEntry {
+  id: string;
+  bookkeeper_id: string;
+  owner_id: string;
+  title: string;
+  content: string;
+  tags: string[];
+  source_member_id: string | null;
+  source_operation_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SitDown {

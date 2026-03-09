@@ -1,0 +1,100 @@
+{
+  "name": "consul",
+  "type": "formula",
+  "publisher": "local",
+  "version": "0.1.0",
+  "description": "Consul member — single-shot LLM advisor, no tool access",
+  "setup": {
+    "policy": {
+      "allowed_tools": ["execution.run"],
+      "timeout": "2m",
+      "max_memory_bytes": 67108864
+    }
+  },
+  "schema": {
+    "input": {
+      "type": "object",
+      "required": ["catalyst_ref", "model"],
+      "properties": {
+        "catalyst_ref": {
+          "type": "string",
+          "description": "LLM catalyst reference to use for generation"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier for the catalyst"
+        },
+        "system": {
+          "type": "string",
+          "description": "System prompt for the consul"
+        },
+        "conversation": {
+          "type": "array",
+          "description": "Chat messages for context"
+        },
+        "sit_down_id": {
+          "type": "string",
+          "description": "Sit-down ID for message insertion"
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Consul member ID"
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Supabase access token"
+        },
+        "member": {
+          "type": "object",
+          "description": "Member object with name"
+        },
+        "reply_to_id": {
+          "type": "string",
+          "description": "Message ID being replied to"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Generated response text"
+        },
+        "usage": {
+          "type": "object",
+          "description": "Token usage stats"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "static": [
+      { "ref": "catalyst:moonmoon69.claude:1.0.0", "reason": "Claude provider" },
+      { "ref": "catalyst:moonmoon69.openai:1.0.0", "reason": "OpenAI provider" },
+      { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
+      { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
+      { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" }
+    ]
+  },
+  "examples": [
+    {
+      "name": "Single-shot advice",
+      "description": "Get a one-shot LLM response from the consul",
+      "input": {
+        "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
+        "model": "claude-sonnet-4-6",
+        "system": "You are a strategic advisor.",
+        "conversation": [{ "role": "user", "content": "Should we expand into the west side?" }],
+        "member": { "name": "The Consigliere" },
+        "member_id": "mem-1",
+        "sit_down_id": "sd-1",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "content": "Based on current conditions...",
+        "usage": { "input_tokens": 300, "output_tokens": 150 }
+      }
+    }
+  ]
+}

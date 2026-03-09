@@ -18,9 +18,17 @@ config.server.enhanceMiddleware = (metroMiddleware, metroServer) => {
     pathRewrite: { '^/cyfr': '/mcp' },
   });
 
+  const apiProxy = createProxyMiddleware({
+    target: 'http://localhost:4000',
+    changeOrigin: true,
+  });
+
   return (req, res, next) => {
     if (req.url && req.url.startsWith('/cyfr')) {
       return cyfrProxy(req, res, next);
+    }
+    if (req.url && req.url.startsWith('/api/')) {
+      return apiProxy(req, res, next);
     }
     return enhanced(req, res, next);
   };

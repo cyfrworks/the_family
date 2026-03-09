@@ -1,10 +1,12 @@
 {
   "name": "auth-api",
   "type": "formula",
+  "publisher": "local",
   "version": "0.1.0",
   "description": "Authentication operations (sign up, sign in, sign out, token refresh, password reset) with server-side validation",
   "setup": {
     "policy": {
+      "allowed_tools": ["execution.run"],
       "timeout": "30s",
       "max_memory_bytes": 67108864,
       "max_request_size": 1048576,
@@ -68,7 +70,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.3.1",
         "reason": "Supabase Auth operations"
       }
     ]

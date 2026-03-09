@@ -16,6 +16,7 @@ import {
   ChevronUp,
   Info,
   Crown,
+  Activity,
 } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSitDowns } from '../../hooks/useSitDowns';
@@ -475,6 +476,22 @@ export function Sidebar(props: DrawerContentComponentProps) {
             <Shield size={16} color={pathname === '/members' ? '#d97706' : '#d6d3d1'} />
             <Text className={`text-sm ${pathname === '/members' ? 'text-gold-500' : 'text-stone-300'}`}>
               Members
+            </Text>
+          </Pressable>
+
+          {/* Operations link */}
+          <Pressable
+            onPress={() => {
+              closeDrawer();
+              router.push('/operations');
+            }}
+            className={`flex-row items-center gap-2 rounded-lg px-3 py-2 ${
+              pathname === '/operations' ? 'bg-stone-800' : ''
+            }`}
+          >
+            <Activity size={16} color={pathname === '/operations' ? '#d97706' : '#d6d3d1'} />
+            <Text className={`text-sm ${pathname === '/operations' ? 'text-gold-500' : 'text-stone-300'}`}>
+              Operations
             </Text>
           </Pressable>
 

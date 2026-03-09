@@ -1,10 +1,12 @@
 {
   "name": "admin-api",
   "type": "formula",
+  "publisher": "local",
   "version": "0.1.0",
   "description": "Admin operations (user listing, tier management, model catalog CRUD) with godfather-level authorization verification",
   "setup": {
     "policy": {
+      "allowed_tools": ["execution.run"],
       "timeout": "30s",
       "max_memory_bytes": 67108864,
       "max_request_size": 1048576,
@@ -88,7 +90,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.2.0",
+        "ref": "catalyst:moonmoon69.supabase:0.3.1",
         "reason": "Database operations and auth verification"
       }
     ]

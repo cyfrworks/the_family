@@ -99,7 +99,7 @@ export function startGlobalChannel(userId: string, queryClient: QueryClient) {
   if (globalChannel) return;
 
   globalChannel = getSupabase()
-    .channel('family:global')
+    .channel('family:global', { config: { broadcast: { self: false } } })
     // --- messages INSERT (all) — local unread increment ---
     .on(
       'postgres_changes',
@@ -187,6 +187,26 @@ export function startGlobalChannel(userId: string, queryClient: QueryClient) {
       if (user_id !== userId) return;
       if (sit_down_id) removeSitDownFromCache(queryClient, sit_down_id);
     })
+    // --- broadcast: member_progress — rich progress events from member formulas ---
+    .on('broadcast', { event: 'member_progress' }, (payload) => {
+      const data = payload.payload as {
+        sit_down_id: string;
+        member_id: string;
+        member_name: string;
+        kind: string;
+        text?: string;
+        turn?: number;
+        message_id?: string;
+        tool?: string;
+        tool_call_id?: string;
+        input?: string;
+        preview?: string;
+        content?: string;
+        input_tokens?: number;
+        output_tokens?: number;
+      };
+      memberProgressListeners.get(data.sit_down_id)?.forEach((fn) => fn(data));
+    })
     // --- commission_contacts * (filtered by user_id) ---
     .on(
       'postgres_changes',
@@ -206,11 +226,38 @@ export function startGlobalChannel(userId: string, queryClient: QueryClient) {
     .subscribe();
 }
 
-export function broadcastLeave(userId: string, sitDownId: string) {
-  globalChannel?.send({
+// ---------------------------------------------------------------------------
+// Member progress listener registry
+// ---------------------------------------------------------------------------
+
+const memberProgressListeners = new Map<string, Set<(data: any) => void>>();
+
+export function onMemberProgress(sitDownId: string, handler: (data: any) => void): () => void {
+  if (!memberProgressListeners.has(sitDownId)) {
+    memberProgressListeners.set(sitDownId, new Set());
+  }
+  memberProgressListeners.get(sitDownId)!.add(handler);
+  return () => {
+    memberProgressListeners.get(sitDownId)?.delete(handler);
+    if (memberProgressListeners.get(sitDownId)?.size === 0) {
+      memberProgressListeners.delete(sitDownId);
+    }
+  };
+}
+
+export function broadcastMemberProgress(payload: Record<string, unknown>) {
+  // Local dispatch — sender sees events instantly without Supabase round-trip
+  const sitDownId = payload.sit_down_id as string;
+  if (sitDownId) {
+    memberProgressListeners.get(sitDownId)?.forEach((fn) => fn(payload));
+  }
+
+  // Broadcast to other participants via Supabase (self: false prevents duplicates)
+  if (!globalChannel) return;
+  globalChannel.send({
     type: 'broadcast',
-    event: 'participant_left',
-    payload: { user_id: userId, sit_down_id: sitDownId },
+    event: 'member_progress',
+    payload,
   });
 }
 
