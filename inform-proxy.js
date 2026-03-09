@@ -25,12 +25,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ version: 2, fix: 'escape-sanitize' }));
-    return;
-  }
-
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'POST only' }));
@@ -74,27 +68,7 @@ const server = http.createServer((req, res) => {
         body: JSON.stringify(mcp),
       });
 
-      const rawText = await upstream.text();
-
-      let data;
-      try {
-        data = JSON.parse(rawText);
-      } catch (parseErr) {
-        // Diagnostic: show the raw bytes around the error position
-        const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0');
-        const snippet = rawText.substring(Math.max(0, pos - 30), pos + 30);
-        const codes = [];
-        for (let i = Math.max(0, pos - 5); i < Math.min(rawText.length, pos + 5); i++) {
-          codes.push({ i, char: rawText[i], code: rawText.charCodeAt(i) });
-        }
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          error: parseErr.message,
-          debug: { position: pos, snippet, chars: codes, responseLength: rawText.length }
-        }));
-        return;
-      }
-
+      const data = await upstream.json();
       const text = data.result?.content?.[0]?.text;
 
       if (data.error || data.result?.isError) {
