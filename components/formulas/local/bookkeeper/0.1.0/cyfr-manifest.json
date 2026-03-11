@@ -3,11 +3,11 @@
   "type": "formula",
   "publisher": "local",
   "version": "0.1.0",
-  "description": "Bookkeeper member — knowledge retrieval and LLM-powered synthesis from entries",
+  "description": "Bookkeeper member — tool-assisted knowledge management with entry CRUD, search, and file storage",
   "setup": {
     "policy": {
       "allowed_tools": ["execution.run"],
-      "timeout": "2m",
+      "timeout": "3m",
       "max_memory_bytes": 67108864
     }
   },
@@ -175,12 +175,12 @@
   },
   "dependencies": {
     "static": [
-      { "ref": "catalyst:moonmoon69.supabase:0.3.1", "reason": "Search bookkeeper entries" },
-      { "ref": "catalyst:moonmoon69.claude:1.0.0", "reason": "Claude provider" },
-      { "ref": "catalyst:moonmoon69.openai:1.0.0", "reason": "OpenAI provider" },
-      { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
-      { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
-      { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" }
+      { "ref": "catalyst:moonmoon69.supabase", "reason": "Database and storage operations" },
+      { "ref": "catalyst:moonmoon69.claude", "reason": "Claude provider" },
+      { "ref": "catalyst:moonmoon69.openai", "reason": "OpenAI provider" },
+      { "ref": "catalyst:moonmoon69.gemini", "reason": "Gemini provider" },
+      { "ref": "catalyst:moonmoon69.grok", "reason": "Grok provider" },
+      { "ref": "catalyst:moonmoon69.openrouter", "reason": "OpenRouter provider" }
     ]
   },
   "examples": [

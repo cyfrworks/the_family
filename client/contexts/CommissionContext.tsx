@@ -26,7 +26,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery<CommissionData>({
+  const { data, isLoading, error: commissionError } = useQuery<CommissionData>({
     queryKey: ['commission', 'state'],
     queryFn: async () => {
       const accessToken = getAccessToken();
@@ -53,6 +53,8 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
     enabled: !!user,
   });
+
+  if (commissionError) console.error('[Commission]', commissionError);
 
   const refetch = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });

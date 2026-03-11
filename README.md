@@ -419,7 +419,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `formula:local.sit-down:0.1.0` | Formula | Local | Sit-down CRUD, participants, messages, mention routing |
 | `formula:local.family-member:0.1.0` | Formula | Local | Unified behavior engine — consul, caporegime, bookkeeper |
 | `formula:local.bookkeeper-api:0.1.0` | Formula | Local | Bookkeeper entry CRUD and full-text search |
-| `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes |
+| `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes, push token registration |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
 | `formula:local.informant-api:0.1.0` | Formula | Local | Informant token auth + message dispatch |
 | `formula:local.list-models:0.5.0` | Formula | Local | Aggregates models across all AI provider catalysts |
@@ -505,7 +505,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── catalyst/                   # Catalyst WIT (run, http, secrets)
 │   ├── formula/                    # Formula WIT (run, invoke)
 │   └── reagent/                    # Reagent WIT
-├── migrations/                     # Database migrations (001 through 014)
+├── migrations/                     # Database migrations (001 through 015)
 ├── inform-proxy.js                 # REST-to-CYFR proxy for /inform endpoint
 ├── docker-compose.yml              # CYFR + inform-proxy + web build + Caddy
 ├── Caddyfile                       # Caddy reverse proxy config (production)

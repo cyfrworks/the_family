@@ -22,7 +22,7 @@ export function FamilySitDownProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: sitDowns = [], isLoading } = useQuery<SitDown[]>({
+  const { data: sitDowns = [], isLoading, error: sitDownsError } = useQuery<SitDown[]>({
     queryKey: ['sitDowns'],
     queryFn: async () => {
       const accessToken = getAccessToken();
@@ -44,6 +44,8 @@ export function FamilySitDownProvider({ children }: { children: ReactNode }) {
     staleTime: 30_000,
     enabled: !!user,
   });
+
+  if (sitDownsError) console.error('[SitDowns]', sitDownsError);
 
   const refetch = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['sitDowns'] });

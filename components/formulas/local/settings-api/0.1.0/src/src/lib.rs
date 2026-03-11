@@ -79,6 +79,24 @@ fn handle_request(input: &str) -> Result<String, String> {
                 .ok_or("Missing required 'new_password'")?;
             change_password(access_token, email, current_password, new_password)
         }
+        "register_push_token" => {
+            let token = parsed
+                .get("token")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'token'")?;
+            let platform = parsed
+                .get("platform")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'platform'")?;
+            register_push_token(access_token, token, platform)
+        }
+        "unregister_push_token" => {
+            let token = parsed
+                .get("token")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'token'")?;
+            unregister_push_token(access_token, token)
+        }
         _ => Err(format!("Unknown action: {action}")),
     }
 }
@@ -159,6 +177,57 @@ fn update_profile(access_token: &str, display_name: &str) -> Result<String, Stri
     )?;
 
     Ok(json!({ "updated": updated }).to_string())
+}
+
+fn register_push_token(access_token: &str, token: &str, platform: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    if platform != "ios" && platform != "android" {
+        return Err("Platform must be 'ios' or 'android'".to_string());
+    }
+
+    // Upsert: insert or update on conflict (token is UNIQUE)
+    supabase_call(
+        "db.upsert",
+        json!({
+            "table": "push_tokens",
+            "body": {
+                "user_id": user_id,
+                "token": token,
+                "platform": platform
+            },
+            "on_conflict": "token",
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "success": true }).to_string())
+}
+
+fn unregister_push_token(access_token: &str, token: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    supabase_call(
+        "db.delete",
+        json!({
+            "table": "push_tokens",
+            "filters": [
+                { "column": "user_id", "op": "eq", "value": user_id },
+                { "column": "token", "op": "eq", "value": token }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "success": true }).to_string())
 }
 
 fn change_password(

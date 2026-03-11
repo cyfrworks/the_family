@@ -16,6 +16,7 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { useMembers } from '../../../../hooks/useMembers';
 import { useInformants } from '../../../../hooks/useInformants';
 import { useCommission } from '../../../../hooks/useCommission';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useResponsive } from '../../../../hooks/useResponsive';
 import { buildMemberOwnerMap } from '../../../../lib/mention-parser';
 import { ChatView } from '../../../../components/chat/ChatView';
@@ -26,6 +27,7 @@ import { BackgroundWatermark } from '../../../../components/BackgroundWatermark'
 export default function SitdownScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isPhone } = useResponsive();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { members: myMembers } = useMembers();
   const { informants: myInformants } = useInformants();
@@ -78,17 +80,8 @@ export default function SitdownScreen() {
   }, [participants, participantMembers]);
 
   const handleToggleMembers = useCallback(() => {
-    if (isPhone) {
-      if (showMembers) {
-        bottomSheetRef.current?.close();
-      } else {
-        bottomSheetRef.current?.snapToIndex(0);
-      }
-      setShowMembers((s) => !s);
-    } else {
-      setShowMembers((s) => !s);
-    }
-  }, [isPhone, showMembers]);
+    setShowMembers((s) => !s);
+  }, []);
 
   const handleBottomSheetChange = useCallback((index: number) => {
     setShowMembers(index >= 0);
@@ -280,16 +273,16 @@ export default function SitdownScreen() {
       <KeyboardAvoidingView
         className="flex-1 bg-stone-950"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom + 50 : 0}
       >
         {content}
       </KeyboardAvoidingView>
 
-      {/* Phone: bottom sheet for members */}
-      {isPhone && (
+      {/* Phone: bottom sheet for members (lazy-mounted to avoid keyboard conflicts) */}
+      {isPhone && showMembers && (
         <BottomSheet
           ref={bottomSheetRef}
-          index={-1}
+          index={0}
           snapPoints={snapPoints}
           onChange={handleBottomSheetChange}
           enablePanDownToClose

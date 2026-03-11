@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { auth, getAccessToken, setAccessToken, hydrateTokens, initAuthListener } from '../lib/supabase';
 import { clearRealtime } from '../lib/realtime';
 import { cyfrCall } from '../lib/cyfr';
+import { getCurrentPushToken, unregisterPushToken } from '../lib/notifications';
 import type { Profile, UserTier } from '../lib/types';
 
 const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
@@ -141,6 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    // Unregister push token before clearing auth state
+    const pushToken = getCurrentPushToken();
+    if (pushToken) {
+      await unregisterPushToken(pushToken).catch(() => {});
+    }
     clearRealtime();
     await auth.signOut();
     setUser(null);

@@ -1,14 +1,13 @@
 import { Platform } from 'react-native';
 import { auth, getAccessToken } from './supabase';
+import { getDevHost } from './dev-host';
 
 function getCyfrUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_CYFR_URL;
-  if (Platform.OS === 'web') {
-    // Relative paths work on web (proxied). If env is a full URL, still use it.
-    return envUrl || '/cyfr';
-  }
-  // Native needs a full URL. If env is a relative path, fall back to localhost.
+  if (Platform.OS === 'web') return envUrl || '/cyfr';
   if (envUrl && envUrl.startsWith('http')) return envUrl;
+  const devHost = getDevHost();
+  if (devHost) return `http://${devHost}:4000/mcp`;
   return 'http://localhost:4000/mcp';
 }
 
@@ -61,15 +60,18 @@ async function cyfrCallOnce(toolName: string, args: Record<string, unknown>): Pr
   const data = await res.json();
 
   if (data.error) {
-    throw new CyfrError(data.error.code, data.error.message);
+    const cyfrErr = data.error as Record<string, unknown>;
+    throw new CyfrError(cyfrErr.code as number, cyfrErr.message as string);
   }
 
-  const text = data.result?.content?.[0]?.text;
+  const result = data.result as Record<string, unknown> | undefined;
+  const content = result?.content as Array<Record<string, unknown>> | undefined;
+  const text = content?.[0]?.text as string | undefined;
   if (!text) {
     throw new CyfrError(-1, 'Empty response from CYFR');
   }
 
-  if (data.result?.isError) {
+  if (result?.isError) {
     throw new CyfrError(-33100, text);
   }
 
@@ -133,6 +135,8 @@ function getCyfrBaseUrl(): string {
   if (envUrl && envUrl.startsWith('http')) {
     try { return new URL(envUrl).origin; } catch { /* fall through */ }
   }
+  const devHost = getDevHost();
+  if (devHost) return `http://${devHost}:4000`;
   return 'http://localhost:4000';
 }
 

@@ -1,10 +1,13 @@
 #[allow(warnings)]
 mod bindings;
+mod helpers;
+mod tools;
 
 use bindings::exports::cyfr::formula::run::Guest;
 use bindings::cyfr::formula::invoke;
 
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 struct Component;
 
@@ -25,7 +28,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
+const MAX_TOOL_ROUNDS: usize = 20;
 
 fn handle_request(input: &str) -> Result<String, String> {
     let parsed: Value =
@@ -52,7 +55,23 @@ fn handle_request(input: &str) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Respond action (existing — AI synthesis from entries)
+// Emit helper
+// ---------------------------------------------------------------------------
+
+// Fire-and-forget: broadcast failure is acceptable, message delivery is DB-backed
+fn emit_event(sit_down_id: &str, member_id: &str, member_name: &str, event: Value, _access_token: &str) {
+    let mut payload = event;
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("member_id".into(), json!(member_id));
+        obj.insert("member_name".into(), json!(member_name));
+        obj.insert("sit_down_id".into(), json!(sit_down_id));
+    }
+
+    let _ = invoke::emit(&payload.to_string());
+}
+
+// ---------------------------------------------------------------------------
+// Respond action — tool-assisted single-turn
 // ---------------------------------------------------------------------------
 
 fn handle_respond(parsed: &Value) -> Result<String, String> {
@@ -82,104 +101,210 @@ fn handle_respond(parsed: &Value) -> Result<String, String> {
     let access_token = parsed.get("access_token").and_then(|v| v.as_str()).unwrap_or("");
     let sit_down_id = parsed.get("sit_down_id").and_then(|v| v.as_str()).unwrap_or("");
     let member_name = member.get("name").and_then(|v| v.as_str()).unwrap_or("Bookkeeper");
-
-    // 1. Get the user's latest message as search query
-    let query = get_last_user_message(&conversation);
-
-    if query.is_empty() {
-        return Ok(json!({
-            "content": "I need a question or topic to search my records.",
-            "usage": {},
-            "entries_used": 0
-        })
-        .to_string());
-    }
-
-    // 2. Search entries via full-text search
-    emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": "Searching knowledge entries..."}), access_token);
-
     let owner_id = member.get("owner_id").and_then(|v| v.as_str()).unwrap_or("");
-    let entries = search_entries(member_id, owner_id, &query, access_token);
-    let entries_arr = entries.as_array().cloned().unwrap_or_default();
 
-    if entries_arr.is_empty() {
-        emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": "No matching entries found, responding from general knowledge..."}), access_token);
-    } else {
-        emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": format!("Found {} relevant entries, synthesizing...", entries_arr.len())}), access_token);
+    if member_id.is_empty() {
+        return Err("Missing required 'member_id' — cannot scope data access".to_string());
+    }
+    if owner_id.is_empty() {
+        return Err("Missing required 'member.owner_id' — cannot scope data access".to_string());
+    }
+    if access_token.is_empty() {
+        return Err("Missing required 'access_token'".to_string());
     }
 
-    // 3. Build context from matching entries
-    let mut context_text = String::new();
-    if !entries_arr.is_empty() {
-        context_text.push_str("RELEVANT KNOWLEDGE ENTRIES:\n\n");
-        for (i, entry) in entries_arr.iter().enumerate() {
-            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
-            let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            let tags = entry.get("tags").and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|t| t.as_str()).collect::<Vec<_>>().join(", "))
-                .unwrap_or_default();
+    // 1. Fetch bookkeeper context (entry count + common tags)
+    emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": "Reviewing records..."}), access_token);
 
-            context_text.push_str(&format!("--- Entry {} ---\n", i + 1));
-            context_text.push_str(&format!("Title: {title}\n"));
-            if !tags.is_empty() {
-                context_text.push_str(&format!("Tags: {tags}\n"));
-            }
-            context_text.push_str(&format!("Content:\n{content}\n\n"));
+    let entries_meta = helpers::supabase_call(
+        "db.select",
+        json!({
+            "access_token": access_token,
+            "table": "bookkeeper_entries",
+            "select": "id,tags",
+            "filters": [
+                {"column": "bookkeeper_id", "op": "eq", "value": member_id},
+                {"column": "owner_id", "op": "eq", "value": owner_id}
+            ],
+            "limit": 500
+        }),
+    )
+    .unwrap_or(json!([]));
+
+    let entries_arr = entries_meta.as_array().cloned().unwrap_or_default();
+    let entry_count = entries_arr.len();
+    let common_tags = extract_unique_tags(&entries_arr);
+
+    // 2. Build enriched system prompt
+    let enriched_system = build_bookkeeper_system(member_name, entry_count, &common_tags, system);
+
+    // 3. Build tool definitions
+    let tools_for_llm = tools::build_tool_definitions(catalyst_ref);
+
+    // 4. Mini tool loop (max 3 rounds)
+    let mut messages = conversation;
+    let mut total_input_tokens: u64 = 0;
+    let mut total_output_tokens: u64 = 0;
+    let mut final_content = String::new();
+    let mut tool_call_count: usize = 0;
+
+    for round in 0..MAX_TOOL_ROUNDS {
+        let turn = (round + 1) as u64;
+        let provider_label = extract_provider_label(catalyst_ref);
+        emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": format!("Calling {}...", provider_label)}), access_token);
+        emit_event(sit_down_id, member_id, member_name, json!({"kind": "turn_start", "turn": turn}), access_token);
+
+        let catalyst_input = tools::build_provider_request_with_tools(
+            catalyst_ref, model, &messages, &enriched_system, &tools_for_llm, 4096,
+        );
+
+        let data = helpers::invoke_catalyst(catalyst_ref, &catalyst_input)?;
+
+        // Track usage
+        if let Some(usage) = data.get("usage") {
+            total_input_tokens += usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            total_output_tokens += usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
         }
+        emit_event(sit_down_id, member_id, member_name, json!({
+            "kind": "usage", "turn": turn,
+            "input_tokens": total_input_tokens, "output_tokens": total_output_tokens
+        }), access_token);
+
+        // Check for tool calls
+        if tools::has_tool_calls(&data, catalyst_ref) {
+            let assistant_msg = tools::build_assistant_message(&data, catalyst_ref);
+            messages.push(assistant_msg);
+
+            let tool_calls = tools::extract_tool_calls(&data, catalyst_ref);
+
+            // Emit tool_use events
+            for tc in &tool_calls {
+                emit_event(sit_down_id, member_id, member_name, json!({
+                    "kind": "tool_use", "turn": turn,
+                    "tool": tc.name, "tool_call_id": tc.id,
+                    "input": truncate_json(&tc.arguments, 500)
+                }), access_token);
+            }
+
+            // Execute tools sequentially
+            let results = tools::execute_bookkeeper_tools(
+                &tool_calls, member_id, owner_id, access_token,
+            );
+            tool_call_count += tool_calls.len();
+
+            // Emit tool_result events
+            for (id, name, result_str) in &results {
+                let preview = if result_str.len() > 300 { &result_str[..300] } else { result_str };
+                emit_event(sit_down_id, member_id, member_name, json!({
+                    "kind": "tool_result", "turn": turn,
+                    "tool": name, "tool_call_id": id,
+                    "preview": preview
+                }), access_token);
+            }
+
+            // Add tool results to conversation
+            let tool_results_msg = tools::build_tool_results_message(&results, catalyst_ref);
+            let lower = catalyst_ref.to_lowercase();
+            if lower.contains("openai") || lower.contains("grok") || lower.contains("openrouter") {
+                if let Some(msgs) = tool_results_msg.as_array() {
+                    for msg in msgs {
+                        messages.push(msg.clone());
+                    }
+                } else {
+                    messages.push(tool_results_msg);
+                }
+            } else {
+                messages.push(tool_results_msg);
+            }
+
+            // Capture any text from this turn (LLM may emit text alongside tool calls)
+            let turn_text = tools::extract_text(&data, catalyst_ref);
+            if !turn_text.is_empty() {
+                emit_event(sit_down_id, member_id, member_name, json!({
+                    "kind": "text_delta", "turn": turn, "content": turn_text
+                }), access_token);
+            }
+
+            continue;
+        }
+
+        // No tool calls — extract final text
+        final_content = tools::extract_text(&data, catalyst_ref);
+        if !final_content.is_empty() {
+            emit_event(sit_down_id, member_id, member_name, json!({
+                "kind": "text_delta", "content": final_content, "turn": turn
+            }), access_token);
+        }
+        break;
     }
 
-    // 4. LLM call with entries as context to synthesize answer
-    let bookkeeper_system = format!(
-        "You are {member_name}, a Bookkeeper in the Family. You maintain and retrieve knowledge. \
-         When answering questions, draw from the knowledge entries provided below. \
-         If the entries don't contain relevant information, say so honestly.\n\n\
-         {context_text}\n\n---\n\n{system}"
-    );
-
-    let provider_label = extract_provider_label(catalyst_ref);
-    emit_event(sit_down_id, member_id, member_name, json!({"kind": "status", "text": format!("Calling {}...", provider_label)}), access_token);
-    emit_event(sit_down_id, member_id, member_name, json!({"kind": "turn_start", "turn": 1}), access_token);
-
-    let catalyst_input = build_provider_request(catalyst_ref, model, &conversation, &bookkeeper_system);
-    let data = invoke_catalyst(catalyst_ref, &catalyst_input)?;
-    emit_native_tool_events(&data, catalyst_ref, sit_down_id, member_id, member_name, access_token);
-    let content = extract_content(&data, catalyst_ref);
-
-    if content.is_empty() {
+    if final_content.is_empty() {
         return Err("Empty response from AI provider".to_string());
     }
 
-    let usage = extract_usage(&data);
-
-    emit_event(sit_down_id, member_id, member_name, json!({"kind": "text_delta", "content": content, "turn": 1}), access_token);
-    emit_event(sit_down_id, member_id, member_name, json!({"kind": "usage", "turn": 1, "input_tokens": usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0), "output_tokens": usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0)}), access_token);
-
     Ok(json!({
-        "content": content,
-        "usage": usage,
-        "entries_used": entries_arr.len()
+        "content": final_content,
+        "usage": {
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens
+        },
+        "entries_used": tool_call_count
     })
     .to_string())
 }
 
 // ---------------------------------------------------------------------------
-// Emit helper
+// Bookkeeper system prompt builder
 // ---------------------------------------------------------------------------
 
-// Fire-and-forget: broadcast failure is acceptable, message delivery is DB-backed
-fn emit_event(sit_down_id: &str, member_id: &str, member_name: &str, event: Value, _access_token: &str) {
-    let mut payload = event;
-    if let Some(obj) = payload.as_object_mut() {
-        obj.insert("member_id".into(), json!(member_id));
-        obj.insert("member_name".into(), json!(member_name));
-        obj.insert("sit_down_id".into(), json!(sit_down_id));
+fn build_bookkeeper_system(member_name: &str, entry_count: usize, common_tags: &[String], base_system: &str) -> String {
+    let mut system = format!(
+        "You are {member_name}, a Bookkeeper in the Family. You maintain and retrieve knowledge entries.\n\n\
+         You have tools to search, list, read, create, update, and delete entries, as well as manage files.\n\
+         Use your tools when you need to look up or modify data. For simple greetings or general questions, \
+         respond directly without tools.\n\n\
+         When saving or updating entries, prefer markdown formatting (headings, lists, tables, code blocks) \
+         to preserve structure. This makes entries more useful when retrieved later.\n\n\
+         STORAGE GUIDELINES:\n\
+         - Entries (DB): searchable knowledge — facts, notes, analyses, summaries, anything you would want to find later by keyword or tag.\n\
+         - Files (Storage): large or structured artifacts — full reports, CSVs, code, configs, data exports. Things meant to be downloaded or referenced as a whole document.\n\n"
+    );
+
+    if entry_count > 0 {
+        system.push_str(&format!("DATA SUMMARY: You currently have {entry_count} entries stored."));
+        if !common_tags.is_empty() {
+            let tags_display: Vec<&str> = common_tags.iter().take(20).map(|s| s.as_str()).collect();
+            system.push_str(&format!(" Common tags: {}", tags_display.join(", ")));
+        }
+        system.push_str("\n\n");
+    } else {
+        system.push_str("DATA SUMMARY: No entries stored yet.\n\n");
     }
 
-    let _ = invoke::emit(&payload.to_string());
+    system.push_str("---\n\n");
+    system.push_str(base_system);
+
+    system
+}
+
+fn extract_unique_tags(entries: &[Value]) -> Vec<String> {
+    let mut tags_set = HashSet::new();
+    for entry in entries {
+        if let Some(tags) = entry.get("tags").and_then(|v| v.as_array()) {
+            for tag in tags {
+                if let Some(t) = tag.as_str() {
+                    tags_set.insert(t.to_string());
+                }
+            }
+        }
+    }
+    let mut tags: Vec<String> = tags_set.into_iter().collect();
+    tags.sort();
+    tags
 }
 
 // ---------------------------------------------------------------------------
-// CRUD actions
+// CRUD actions (unchanged — called directly by caporegimes)
 // ---------------------------------------------------------------------------
 
 fn handle_list_entries(parsed: &Value) -> Result<String, String> {
@@ -192,14 +317,14 @@ fn handle_list_entries(parsed: &Value) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'bookkeeper_id'")?;
 
-    let user = fetch_user(access_token)?;
+    let user = helpers::fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Could not get user ID")?;
 
-    let data = supabase_call(
-        "select",
+    let data = helpers::supabase_call(
+        "db.select",
         json!({
             "access_token": access_token,
             "table": "bookkeeper_entries",
@@ -230,18 +355,18 @@ fn handle_search(parsed: &Value) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'query'")?;
 
-    let user = fetch_user(access_token)?;
+    let user = helpers::fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Could not get user ID")?;
 
-    let data = supabase_call(
-        "rpc",
+    let data = helpers::supabase_call(
+        "db.rpc",
         json!({
             "access_token": access_token,
             "function": "search_bookkeeper_entries",
-            "params": {
+            "body": {
                 "p_bookkeeper_id": bookkeeper_id,
                 "p_owner_id": user_id,
                 "p_query": query
@@ -261,17 +386,27 @@ fn handle_get_entry(parsed: &Value) -> Result<String, String> {
         .get("entry_id")
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'entry_id'")?;
+    let bookkeeper_id = parsed
+        .get("bookkeeper_id")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing required 'bookkeeper_id'")?;
 
-    let _user = fetch_user(access_token)?;
+    let user = helpers::fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not get user ID")?;
 
-    let data = supabase_call(
-        "select",
+    let data = helpers::supabase_call(
+        "db.select",
         json!({
             "access_token": access_token,
             "table": "bookkeeper_entries",
             "select": "*",
             "filters": [
-                {"column": "id", "op": "eq", "value": entry_id}
+                {"column": "id", "op": "eq", "value": entry_id},
+                {"column": "bookkeeper_id", "op": "eq", "value": bookkeeper_id},
+                {"column": "owner_id", "op": "eq", "value": user_id}
             ],
             "limit": 1
         }),
@@ -303,7 +438,7 @@ fn handle_create_entry(parsed: &Value) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'content'")?;
 
-    let user = fetch_user(access_token)?;
+    let user = helpers::fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
@@ -333,8 +468,8 @@ fn handle_create_entry(parsed: &Value) -> Result<String, String> {
         }
     }
 
-    let data = supabase_call(
-        "insert",
+    let data = helpers::supabase_call(
+        "db.insert",
         json!({
             "access_token": access_token,
             "table": "bookkeeper_entries",
@@ -361,7 +496,7 @@ fn handle_update_entry(parsed: &Value) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'entry_id'")?;
 
-    let _user = fetch_user(access_token)?;
+    let _user = helpers::fetch_user(access_token)?;
 
     let mut body = json!({});
 
@@ -382,8 +517,8 @@ fn handle_update_entry(parsed: &Value) -> Result<String, String> {
         }
     }
 
-    let data = supabase_call(
-        "update",
+    let data = helpers::supabase_call(
+        "db.update",
         json!({
             "access_token": access_token,
             "table": "bookkeeper_entries",
@@ -413,10 +548,10 @@ fn handle_delete_entry(parsed: &Value) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required 'entry_id'")?;
 
-    let _user = fetch_user(access_token)?;
+    let _user = helpers::fetch_user(access_token)?;
 
-    supabase_call(
-        "delete",
+    helpers::supabase_call(
+        "db.delete",
         json!({
             "access_token": access_token,
             "table": "bookkeeper_entries",
@@ -455,7 +590,7 @@ fn handle_insert_message(parsed: &Value) -> Result<String, String> {
         .cloned()
         .unwrap_or(json!({}));
 
-    let message_id = insert_ai_message(sit_down_id, member_id, content, &metadata, access_token)?;
+    let message_id = helpers::insert_ai_message(sit_down_id, member_id, content, &metadata, access_token)?;
 
     Ok(json!({ "message_id": message_id }).to_string())
 }
@@ -490,8 +625,8 @@ fn handle_create_operation(parsed: &Value) -> Result<String, String> {
         body["cron_job_id"] = json!(cj);
     }
 
-    let data = supabase_call(
-        "insert",
+    let data = helpers::supabase_call(
+        "db.insert",
         json!({
             "access_token": access_token,
             "table": "operations",
@@ -540,8 +675,8 @@ fn handle_update_operation(parsed: &Value) -> Result<String, String> {
         }
     }
 
-    supabase_call(
-        "update",
+    helpers::supabase_call(
+        "db.update",
         json!({
             "access_token": access_token,
             "table": "operations",
@@ -556,232 +691,12 @@ fn handle_update_operation(parsed: &Value) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Entry search (used by respond action)
-// ---------------------------------------------------------------------------
-
-fn search_entries(bookkeeper_id: &str, owner_id: &str, query: &str, access_token: &str) -> Value {
-    supabase_call(
-        "db.rpc",
-        json!({
-            "function": "search_bookkeeper_entries",
-            "body": {
-                "p_bookkeeper_id": bookkeeper_id,
-                "p_owner_id": owner_id,
-                "p_query": query
-            },
-            "access_token": access_token
-        }),
-    ).unwrap_or(json!([]))
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn supabase_call(operation: &str, params: Value) -> Result<Value, String> {
-    let request = json!({
-        "tool": "execution",
-        "action": "run",
-        "args": {
-            "reference": SUPABASE_REF,
-            "input": {
-                "operation": operation,
-                "params": params
-            },
-            "type": "catalyst"
-        }
-    });
-
-    let response_str = invoke::call(&request.to_string());
-    let response: Value = serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse Supabase response: {e}"))?;
-
-    if let Some(err) = response.get("error") {
-        return Err(format!("Supabase invoke error: {err}"));
-    }
-
-    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
-    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
-    let result = match &raw_result {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
-        _ => raw_result,
-    };
-
-    if let Some(err) = result.get("error") {
-        return Err(format!("Supabase error: {err}"));
-    }
-
-    Ok(result.get("data").cloned().unwrap_or(Value::Null))
-}
-
-fn fetch_user(access_token: &str) -> Result<Value, String> {
-    let request = json!({
-        "tool": "execution",
-        "action": "run",
-        "args": {
-            "reference": SUPABASE_REF,
-            "input": {
-                "operation": "auth.user",
-                "params": {
-                    "access_token": access_token
-                }
-            },
-            "type": "catalyst"
-        }
-    });
-
-    let response_str = invoke::call(&request.to_string());
-    let response: Value = serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse auth response: {e}"))?;
-
-    if let Some(err) = response.get("error") {
-        return Err(format!("Auth error: {err}"));
-    }
-
-    let envelope = response.get("output").cloned().unwrap_or(Value::Null);
-    let raw_result = envelope.get("result").cloned().unwrap_or(Value::Null);
-    let result = match &raw_result {
-        Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(raw_result.clone()),
-        _ => raw_result,
-    };
-
-    if let Some(err) = result.get("error") {
-        return Err(format!("Auth error: {err}"));
-    }
-
-    Ok(result.get("data").cloned().unwrap_or(Value::Null))
-}
-
-fn invoke_catalyst(catalyst_ref: &str, catalyst_input: &Value) -> Result<Value, String> {
-    let request = json!({
-        "tool": "execution",
-        "action": "run",
-        "args": {
-            "reference": catalyst_ref,
-            "input": catalyst_input,
-            "type": "catalyst"
-        }
-    });
-
-    let response_str = invoke::call(&request.to_string());
-    let response: Value = serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse catalyst response: {e}"))?;
-
-    if let Some(err) = response.get("error") {
-        return Err(format!("Catalyst invoke error: {err}"));
-    }
-
-    let output = response.get("output").cloned().unwrap_or(Value::Null);
-    let catalyst_result = if let Some(result) = output.get("result") {
-        result.clone()
-    } else {
-        match &output {
-            Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(output.clone()),
-            _ => output,
-        }
-    };
-
-    if let Some(err) = catalyst_result.get("error") {
-        let fallback = err.to_string();
-        let err_msg = err
-            .get("message")
-            .or_else(|| err.get("error").and_then(|e| e.get("message")))
-            .and_then(|v| v.as_str())
-            .unwrap_or(&fallback);
-        return Err(err_msg.to_string());
-    }
-
-    Ok(catalyst_result.get("data").cloned().unwrap_or(Value::Null))
-}
 
 fn truncate_json(val: &Value, max: usize) -> String {
     let s = val.to_string();
     if s.len() <= max { s } else { format!("{}…", &s[..max]) }
-}
-
-fn emit_native_tool_events(
-    data: &Value,
-    catalyst_ref: &str,
-    sit_down_id: &str,
-    member_id: &str,
-    member_name: &str,
-    access_token: &str,
-) {
-    let lower = catalyst_ref.to_lowercase();
-
-    if lower.contains("claude") {
-        if let Some(content) = data.get("content").and_then(|v| v.as_array()) {
-            for block in content {
-                let btype = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                if btype == "server_tool_use" {
-                    let tool = block.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
-                    let input = block.get("input").unwrap_or(&Value::Null);
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_use", "turn": 1,
-                        "tool": tool, "tool_call_id": block.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                        "input": truncate_json(input, 500)
-                    }), access_token);
-                } else if btype == "web_search_tool_result" {
-                    let tool = "web_search";
-                    let mut preview = String::new();
-                    if let Some(results) = block.get("content").and_then(|v| v.as_array()) {
-                        for r in results.iter().take(3) {
-                            if let Some(title) = r.get("title").and_then(|v| v.as_str()) {
-                                if !preview.is_empty() { preview.push_str("; "); }
-                                preview.push_str(title);
-                            }
-                        }
-                    }
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_result", "turn": 1,
-                        "tool": tool, "tool_call_id": block.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                        "preview": if preview.is_empty() { "search completed".to_string() } else { preview }
-                    }), access_token);
-                }
-            }
-        }
-    } else if lower.contains("openai") || lower.contains("grok") {
-        if let Some(output) = data.get("output").and_then(|v| v.as_array()) {
-            for item in output {
-                let itype = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                if itype == "web_search_call" || itype == "x_search_call" {
-                    let tool = itype.trim_end_matches("_call");
-                    let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_use", "turn": 1, "tool": tool, "tool_call_id": id,
-                        "input": item.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string()
-                    }), access_token);
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_result", "turn": 1, "tool": tool, "tool_call_id": id,
-                        "preview": "search completed"
-                    }), access_token);
-                }
-            }
-        }
-    } else if lower.contains("gemini") {
-        if let Some(parts) = data
-            .get("candidates").and_then(|v| v.as_array()).and_then(|a| a.first())
-            .and_then(|c| c.get("content")).and_then(|c| c.get("parts")).and_then(|v| v.as_array())
-        {
-            for part in parts {
-                if let Some(fc) = part.get("functionCall") {
-                    let tool = fc.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
-                    let args = fc.get("args").unwrap_or(&Value::Null);
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_use", "turn": 1, "tool": tool,
-                        "input": truncate_json(args, 500)
-                    }), access_token);
-                } else if let Some(fr) = part.get("functionResponse") {
-                    let tool = fr.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
-                    let response = fr.get("response").unwrap_or(&Value::Null);
-                    emit_event(sit_down_id, member_id, member_name, json!({
-                        "kind": "tool_result", "turn": 1, "tool": tool,
-                        "preview": truncate_json(response, 300)
-                    }), access_token);
-                }
-            }
-        }
-    }
 }
 
 fn extract_provider_label(catalyst_ref: &str) -> &'static str {
@@ -792,217 +707,4 @@ fn extract_provider_label(catalyst_ref: &str) -> &'static str {
     else if lower.contains("grok") { "Grok" }
     else if lower.contains("openrouter") { "OpenRouter" }
     else { "AI" }
-}
-
-fn extract_content(data: &Value, catalyst_ref: &str) -> String {
-    if let Some(text) = data.get("combined_text").and_then(|v| v.as_str()) {
-        return text.to_string();
-    }
-
-    let lower = catalyst_ref.to_lowercase();
-
-    if lower.contains("claude") {
-        if let Some(content) = data.get("content").and_then(|v| v.as_array()) {
-            return content
-                .iter()
-                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("text"))
-                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-        }
-    } else if lower.contains("openai") || lower.contains("grok") {
-        if let Some(output) = data.get("output").and_then(|v| v.as_array()) {
-            let text: String = output
-                .iter()
-                .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("message"))
-                .filter_map(|item| item.get("content").and_then(|v| v.as_array()))
-                .flatten()
-                .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("output_text"))
-                .filter_map(|c| c.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-            if !text.is_empty() {
-                return text;
-            }
-        }
-        if let Some(text) = data
-            .get("choices")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            return text.to_string();
-        }
-    } else if lower.contains("openrouter") {
-        if let Some(text) = data
-            .get("choices")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            return text.to_string();
-        }
-    } else if lower.contains("gemini") {
-        if let Some(text) = data
-            .get("candidates")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|candidate| candidate.get("content"))
-            .and_then(|content| content.get("parts"))
-            .and_then(|v| v.as_array())
-        {
-            return text
-                .iter()
-                .filter_map(|part| part.get("text").and_then(|v| v.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-        }
-    }
-
-    String::new()
-}
-
-fn build_provider_request(
-    catalyst_ref: &str,
-    model: &str,
-    messages: &[Value],
-    system: &str,
-) -> Value {
-    let lower = catalyst_ref.to_lowercase();
-
-    if lower.contains("claude") {
-        json!({
-            "operation": "messages.create",
-            "params": {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "max_tokens": 4096
-            }
-        })
-    } else if lower.contains("grok") {
-        json!({
-            "operation": "responses.create",
-            "params": {
-                "model": model,
-                "instructions": system,
-                "input": messages,
-                "max_output_tokens": 4096
-            }
-        })
-    } else if lower.contains("openrouter") {
-        let mut all_messages = vec![json!({"role": "system", "content": system})];
-        all_messages.extend_from_slice(messages);
-        json!({
-            "operation": "chat.completions.create",
-            "params": {
-                "model": model,
-                "messages": all_messages,
-                "max_tokens": 4096
-            }
-        })
-    } else if lower.contains("openai") {
-        json!({
-            "operation": "responses.create",
-            "params": {
-                "model": model,
-                "instructions": system,
-                "input": messages,
-                "max_output_tokens": 4096
-            }
-        })
-    } else if lower.contains("gemini") {
-        let contents: Vec<Value> = messages
-            .iter()
-            .map(|msg| {
-                let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
-                let gemini_role = if role == "assistant" { "model" } else { "user" };
-                let text = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                json!({
-                    "role": gemini_role,
-                    "parts": [{ "text": text }]
-                })
-            })
-            .collect();
-
-        json!({
-            "operation": "generate",
-            "params": {
-                "model": model,
-                "systemInstruction": { "parts": [{ "text": system }] },
-                "contents": contents,
-                "generationConfig": { "maxOutputTokens": 4096 }
-            }
-        })
-    } else {
-        json!({
-            "operation": "chat.create",
-            "params": {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "max_tokens": 4096
-            }
-        })
-    }
-}
-
-fn extract_usage(data: &Value) -> Value {
-    if let Some(usage) = data.get("usage") {
-        return json!({
-            "input_tokens": usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-            "output_tokens": usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0)
-        });
-    }
-    Value::Null
-}
-
-fn insert_ai_message(
-    sit_down_id: &str,
-    member_id: &str,
-    content: &str,
-    metadata: &Value,
-    access_token: &str,
-) -> Result<String, String> {
-    let rpc_result = supabase_call(
-        "db.rpc",
-        json!({
-            "function": "insert_ai_message",
-            "body": {
-                "p_sit_down_id": sit_down_id,
-                "p_sender_member_id": member_id,
-                "p_content": content,
-                "p_metadata": metadata
-            },
-            "access_token": access_token
-        }),
-    )?;
-
-    let message_id = rpc_result
-        .get("id")
-        .and_then(|v| v.as_str())
-        .or_else(|| {
-            rpc_result.as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|row| row.get("id"))
-                .and_then(|v| v.as_str())
-        })
-        .unwrap_or("")
-        .to_string();
-
-    Ok(message_id)
-}
-
-fn get_last_user_message(conversation: &[Value]) -> String {
-    conversation
-        .iter()
-        .rev()
-        .find(|msg| msg.get("role").and_then(|v| v.as_str()) == Some("user"))
-        .and_then(|msg| msg.get("content").and_then(|v| v.as_str()))
-        .unwrap_or("")
-        .to_string()
 }

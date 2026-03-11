@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Platform, View, Text, Pressable } from 'react-native';
 import { ChevronDown, ChevronUp, Copy, Check } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { getDevHost } from '../../lib/dev-host';
 
 function getInformUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -11,6 +12,8 @@ function getInformUrl(): string {
   if (envUrl && envUrl.startsWith('http')) {
     try { return new URL('/inform', new URL(envUrl).origin).href; } catch { /* fall through */ }
   }
+  const devHost = getDevHost();
+  if (devHost) return `http://${devHost}:4002/inform`;
   return 'http://localhost:4002/inform';
 }
 
