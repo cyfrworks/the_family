@@ -14,6 +14,17 @@
 	handle /inform {
 		reverse_proxy inform-proxy:4002
 	}
+	# Proxy Supabase traffic to bypass GFW
+	handle /supabase/* {
+		uri strip_prefix /supabase
+		reverse_proxy {$UPSTREAM_SUPABASE_URL} {
+			# Supabase Cloud requires the Host header to match the project ref
+			header_up Host {remote_host}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
 
 	# Frontend SPA (static files with client-side routing fallback)
 	handle {
