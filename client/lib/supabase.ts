@@ -90,7 +90,7 @@ export const auth = {
     });
 
     if (error) throw new Error(error.message);
-    if (!result.session) throw new Error('Sign up succeeded but no session was returned.');
+    if (!result.session) throw new Error('We sent word to your email. Confirm your loyalty before you sit at the table.');
 
     const tokens: AuthTokens = {
       access_token: result.session.access_token,

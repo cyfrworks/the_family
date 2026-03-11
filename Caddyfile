@@ -19,7 +19,7 @@
 		uri strip_prefix /supabase
 		reverse_proxy {$UPSTREAM_SUPABASE_URL} {
 			# Supabase Cloud requires the Host header to match the project ref
-			header_up Host {remote_host}
+			header_up Host aozxiyxossszlfcuwhbm.supabase.co
 			header_up X-Real-IP {remote}
 			header_up X-Forwarded-For {remote}
 			header_up X-Forwarded-Proto {scheme}

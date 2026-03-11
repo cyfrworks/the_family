@@ -7,6 +7,10 @@ function getInformUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return `${window.location.origin}/inform`;
   }
+  const envUrl = process.env.EXPO_PUBLIC_CYFR_URL;
+  if (envUrl && envUrl.startsWith('http')) {
+    try { return new URL('/inform', new URL(envUrl).origin).href; } catch { /* fall through */ }
+  }
   return 'http://localhost:4002/inform';
 }
 
