@@ -15,7 +15,9 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_CYFR_URL": "https://thefamily.cyfrworks.com/mcp",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://aozxiyxossszlfcuwhbm.supabase.co"
+        "EXPO_PUBLIC_CYFR_PUBLIC_KEY": "cyfr_pk_EeGvHpRSTGiXoztnfXAeVzXTeTHdkamL",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aozxiyxossszlfcuwhbm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_KEY": "sb_publishable_jHgcuK-3pp_IN73RutDl8g_UaFtF2HI"
       }
     }
   },

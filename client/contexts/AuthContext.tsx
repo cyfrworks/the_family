@@ -39,31 +39,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initRef.current = true;
 
     async function init() {
-      await hydrateTokens();
-      initAuthListener();
+      try {
+        await hydrateTokens();
+        initAuthListener();
 
-      const token = getAccessToken();
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      let currentUser = await auth.getUser();
-
-      if (!currentUser) {
-        const tokens = await auth.refresh();
-        if (tokens) {
-          currentUser = tokens.user;
+        const token = getAccessToken();
+        if (!token) {
+          setLoading(false);
+          return;
         }
-      }
 
-      if (currentUser) {
-        setAccessToken(getAccessToken());
-        setUser({ id: currentUser.id, email: currentUser.email });
-        await fetchProfile();
-      }
+        let currentUser = await auth.getUser();
 
-      setLoading(false);
+        if (!currentUser) {
+          const tokens = await auth.refresh();
+          if (tokens) {
+            currentUser = tokens.user;
+          }
+        }
+
+        if (currentUser) {
+          setAccessToken(getAccessToken());
+          setUser({ id: currentUser.id, email: currentUser.email });
+          await fetchProfile();
+        }
+      } catch (err) {
+        console.error('Auth init failed:', err);
+      } finally {
+        setLoading(false);
+      }
     }
     init();
   }, []);
