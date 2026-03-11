@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { Plus, UserPlus, X } from 'lucide-react-native';
-import { PROVIDER_COLORS } from '../../config/constants';
 import { useAuth } from '../../contexts/AuthContext';
+import { UserAvatar } from '../common/UserAvatar';
 import { confirmAlert } from '../../lib/alert';
 import type { SitDownParticipant, Member, CommissionContact } from '../../lib/types';
 import type { MembersByOwner } from '../../hooks/useSitDownData';
@@ -140,11 +140,7 @@ export function MemberList({
 
                 return (
                   <View key={d.id} className="flex-row items-center gap-2 rounded-md px-2 py-1.5">
-                    <View className="h-6 w-6 items-center justify-center rounded-full bg-yellow-600">
-                      <Text className="text-[10px] font-bold text-stone-950">
-                        {d.profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                      </Text>
-                    </View>
+                    <UserAvatar profile={d.profile} size={24} />
                     <View className="flex-row items-center flex-1 gap-1 min-w-0">
                       <Text className="text-xs text-stone-300 shrink" numberOfLines={1}>
                         {d.profile?.display_name ?? 'Don'}
@@ -199,11 +195,9 @@ export function MemberList({
                 key={p.id}
                 className="flex-row items-center gap-2 rounded-md px-2 py-1.5"
               >
-                <View
-                  className={`h-6 w-6 shrink-0 items-center justify-center rounded ${p.member?.catalog_model ? PROVIDER_COLORS[p.member.catalog_model.provider] : 'bg-stone-600'}`}
-                >
-                  <Text className="text-[9px] font-bold text-white">
-                    {p.member?.catalog_model?.provider[0].toUpperCase() ?? '?'}
+                <View className="h-6 w-6 shrink-0 items-center justify-center rounded bg-stone-700">
+                  <Text className="text-[11px]">
+                    {p.member?.avatar_url || '\u{1F3AD}'}
                   </Text>
                 </View>
                 <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
@@ -280,11 +274,9 @@ export function MemberList({
                       className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
                     >
                       <Plus size={12} color="#eab308" />
-                      <View
-                        className={`h-5 w-5 shrink-0 items-center justify-center rounded ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
-                      >
-                        <Text className="text-[8px] font-bold text-white">
-                          {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
+                      <View className="h-5 w-5 shrink-0 items-center justify-center rounded bg-stone-700">
+                        <Text className="text-[10px]">
+                          {member.avatar_url || '\u{1F3AD}'}
                         </Text>
                       </View>
                       <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
@@ -348,11 +340,9 @@ export function MemberList({
                         className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
                       >
                         <Plus size={12} color="#eab308" />
-                        <View
-                          className={`h-5 w-5 shrink-0 items-center justify-center rounded ${member.catalog_model ? PROVIDER_COLORS[member.catalog_model.provider] : 'bg-stone-600'}`}
-                        >
-                          <Text className="text-[8px] font-bold text-white">
-                            {member.catalog_model?.provider[0].toUpperCase() ?? '?'}
+                        <View className="h-5 w-5 shrink-0 items-center justify-center rounded bg-stone-700">
+                          <Text className="text-[10px]">
+                            {member.avatar_url || '\u{1F3AD}'}
                           </Text>
                         </View>
                         <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
@@ -407,11 +397,7 @@ export function MemberList({
                   className={`flex-row items-center gap-2 rounded-md border border-stone-800 px-2 py-1.5 ${adding ? 'opacity-50' : ''}`}
                 >
                   <UserPlus size={12} color="#eab308" />
-                  <View className="h-5 w-5 items-center justify-center rounded-full bg-yellow-600">
-                    <Text className="text-[8px] font-bold text-stone-950">
-                      {contact.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                    </Text>
-                  </View>
+                  <UserAvatar profile={contact.contact_profile} size={20} />
                   <Text className="text-xs text-stone-300 flex-1" numberOfLines={1}>
                     {contact.contact_profile?.display_name ?? 'Don'}
                   </Text>

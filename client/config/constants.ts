@@ -14,6 +14,7 @@ export const MEMBER_TYPE_DESCRIPTIONS: Record<string, string> = {
   consul: 'Advisor — one-shot responses, @mentionable in sit-downs',
   caporegime: 'Orchestrator — uses tools, delegates to crew, reports back',
   bookkeeper: 'Knowledge store — maintains records, answers queries',
+  informant: 'External pipeline — sends data into sit-downs via API token',
 };
 
 export const PROVIDER_LABELS: Record<Provider, string> = {

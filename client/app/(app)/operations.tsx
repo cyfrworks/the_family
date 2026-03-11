@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
-import { ChevronDown, ChevronUp, Clock, CheckCircle, XCircle, BookOpen } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Clock, CheckCircle, XCircle } from 'lucide-react-native';
 import { useOperations } from '../../hooks/useOperations';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
 import type { Operation, BookkeeperEntry } from '../../lib/types';
@@ -113,8 +113,8 @@ function EntryCard({ entry }: { entry: BookkeeperEntry & { member?: { id: string
       className="rounded-lg border border-stone-800 bg-stone-900 overflow-hidden"
     >
       <View className="flex-row items-center gap-3 px-4 py-3">
-        <View className="h-7 w-7 items-center justify-center rounded-full bg-amber-800">
-          <BookOpen size={14} color="#fff" />
+        <View className="h-7 w-7 items-center justify-center rounded-full bg-stone-700">
+          <Text className="text-sm">{entry.member?.avatar_url || '\u{1F4DA}'}</Text>
         </View>
 
         <View className="min-w-0 flex-1">

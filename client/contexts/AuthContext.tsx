@@ -22,6 +22,7 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (updates: { display_name?: string; avatar_url?: string }) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -141,6 +142,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchProfile();
   }
 
+  function updateProfile(updates: { display_name?: string; avatar_url?: string }) {
+    setProfile((prev) => prev ? { ...prev, ...updates } : prev);
+  }
+
   async function signOut() {
     // Unregister push token before clearing auth state
     const pushToken = getCurrentPushToken();
@@ -154,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, tier, isGodfather, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, profile, tier, isGodfather, loading, signIn, signUp, signOut, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

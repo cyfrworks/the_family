@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 use crate::bindings::cyfr::formula::invoke;
 
-pub const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
+pub const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
 
 fn supabase_call_once(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({

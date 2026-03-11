@@ -29,7 +29,7 @@ bindings::export!(Component with_types_in bindings);
 // Constants
 // ---------------------------------------------------------------------------
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
+const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
 const MENTION_PARSER_REF: &str = "reagent:local.mention-parser:0.1.0";
 const SELF_REF: &str = "formula:local.sit-down:0.1.0";
 const CONSUL_REF: &str = "formula:local.consul:0.1.0";

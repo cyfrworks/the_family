@@ -19,6 +19,7 @@ import {
   Activity,
 } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { UserAvatar } from '../common/UserAvatar';
 import { useSitDowns } from '../../hooks/useSitDowns';
 import { useCommission } from '../../hooks/useCommission';
 import { useCommissionSitDowns } from '../../hooks/useCommissionSitDowns';
@@ -385,11 +386,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
               {/* Outgoing pending invites */}
               {sentInvites.map((c) => (
                 <View key={c.id} className="flex-row items-center gap-2 rounded-md px-2 py-1 opacity-60">
-                  <View className="h-5 w-5 items-center justify-center rounded-full bg-stone-700">
-                    <Text className="text-[9px] font-bold text-stone-400">
-                      {c.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                    </Text>
-                  </View>
+                  <UserAvatar profile={c.contact_profile} size={20} />
                   <Text numberOfLines={1} className="flex-1 text-xs italic text-stone-500">
                     {c.contact_profile?.display_name ?? 'Don'}
                   </Text>
@@ -402,11 +399,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
                 const contactName = c.contact_profile?.display_name ?? 'this Don';
                 return (
                   <View key={c.id} className="flex-row items-center gap-2 rounded-md px-2 py-1">
-                    <View className="h-5 w-5 items-center justify-center rounded-full bg-gold-600">
-                      <Text className="text-[9px] font-bold text-stone-950">
-                        {c.contact_profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                      </Text>
-                    </View>
+                    <UserAvatar profile={c.contact_profile} size={20} />
                     <Text numberOfLines={1} className="flex-1 text-xs text-stone-400">
                       {c.contact_profile?.display_name ?? 'Don'}
                     </Text>
@@ -534,11 +527,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
         <View className="border-t border-stone-800 p-3">
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center gap-2 flex-1 min-w-0">
-              <View className="h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-600">
-                <Text className="text-sm font-bold text-stone-950">
-                  {profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                </Text>
-              </View>
+              <UserAvatar profile={profile} size={32} />
               <View className="min-w-0 flex-1">
                 <Text numberOfLines={1} className="text-sm text-stone-300">
                   {profile?.display_name ?? 'Don'}

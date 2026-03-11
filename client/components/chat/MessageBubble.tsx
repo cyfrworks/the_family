@@ -3,6 +3,7 @@ import { View, Text, Pressable, Animated } from 'react-native';
 import { Reply } from 'lucide-react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageContent } from './MessageContent';
+import { UserAvatar } from '../common/UserAvatar';
 import { PROVIDER_COLORS, PROVIDER_LABELS } from '../../config/constants';
 import type { Message } from '../../lib/types';
 
@@ -102,11 +103,7 @@ export function MessageBubble({ message, replyTo, onReply, onScrollToMessage, pr
               borderRadius: 4,
             }}
           />
-          <View className="h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yellow-600">
-            <Text className="text-sm font-bold text-stone-950">
-              {message.profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-            </Text>
-          </View>
+          <UserAvatar profile={message.profile} size={32} />
           <View className="min-w-0 flex-1">
             <View className="flex-row items-baseline gap-2">
               <Text className="text-sm font-semibold text-yellow-500">
@@ -146,10 +143,10 @@ export function MessageBubble({ message, replyTo, onReply, onScrollToMessage, pr
           }}
         />
         <View
-          className={`h-8 w-8 shrink-0 items-center justify-center rounded-lg ${provider ? PROVIDER_COLORS[provider] : 'bg-stone-600'}`}
+          className="h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-stone-700"
         >
-          <Text className="text-sm font-bold text-white">
-            {message.member?.name?.[0]?.toUpperCase() ?? 'M'}
+          <Text className="text-base">
+            {message.member?.avatar_url || '\u{1F3AD}'}
           </Text>
         </View>
         <View className="min-w-0 flex-1">

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, Pressable, ActivityIndicator, ScrollView } from 'react-native';
-import { Plus, Copy, Check } from 'lucide-react-native';
-import { TextInput } from 'react-native';
+import { Plus, Copy, Check, Info } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useMembers } from '../../hooks/useMembers';
 import { useInformants } from '../../hooks/useInformants';
@@ -10,10 +9,38 @@ import { MemberEditor } from '../../components/members/MemberEditor';
 import { CaporegimeCard } from '../../components/members/CaporegimeCard';
 import { InformantCard } from '../../components/members/InformantCard';
 import { InformantUsage } from '../../components/members/InformantUsage';
+import { Dropdown } from '../../components/ui/Dropdown';
+import { MEMBER_TYPE_DESCRIPTIONS } from '../../config/constants';
 import type { Member, MemberType } from '../../lib/types';
 import { toast } from '../../lib/toast';
 import { confirmAlert } from '../../lib/alert';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
+
+// ── Role tooltip (press-to-reveal description) ────────────────────────
+function RoleTooltip({ role }: { role: string }) {
+  const [show, setShow] = useState(false);
+  const description = MEMBER_TYPE_DESCRIPTIONS[role];
+  if (!description) return null;
+
+  return (
+    <Dropdown
+      open={show}
+      onClose={() => setShow(false)}
+      align="right"
+      trigger={
+        <Pressable onPress={() => setShow((s) => !s)} hitSlop={8}>
+          <Info size={12} color="#57534e" />
+        </Pressable>
+      }
+    >
+      <View className="px-2.5 py-1.5 w-48">
+        <Text className="text-[11px] leading-tight text-stone-300">
+          {description}
+        </Text>
+      </View>
+    </Dropdown>
+  );
+}
 
 export default function MembersScreen() {
   const { members, loading, createMember, updateMember, deleteMember, listCrew } = useMembers();
@@ -27,10 +54,9 @@ export default function MembersScreen() {
   const [crewMap, setCrewMap] = useState<Record<string, Member[]>>({});
   const [crewLoading, setCrewLoading] = useState<Record<string, boolean>>({});
 
-  // Informant creation state
+  // Token display state
   const [creatingInformant, setCreatingInformant] = useState(false);
   const [informantName, setInformantName] = useState('');
-  const [informantEmoji, setInformantEmoji] = useState('');
   const [newToken, setNewToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
 
@@ -78,6 +104,7 @@ export default function MembersScreen() {
     system_prompt: string;
     member_type?: MemberType;
     caporegime_id?: string;
+    avatar_url?: string;
   }) {
     try {
       if (editing) {
@@ -85,8 +112,16 @@ export default function MembersScreen() {
           name: data.name,
           catalog_model_id: data.catalog_model_id,
           system_prompt: data.system_prompt,
+          avatar_url: data.avatar_url,
         });
         toast.success(`${data.name} has new orders.`);
+      } else if (data.member_type === 'informant') {
+        // Route informant creation through the informant hook
+        const { token } = await createInformant(data.name, data.avatar_url);
+        setNewToken(token);
+        setInformantName(data.name);
+        setCreatingInformant(true);
+        toast.success(`${data.name} is now an informant.`);
       } else {
         await createMember(data);
         const label = data.member_type === 'soldier' ? 'soldier' : data.member_type === 'caporegime' ? 'captain' : 'member';
@@ -138,21 +173,9 @@ export default function MembersScreen() {
     }
   }
 
-  async function handleCreateInformant() {
-    if (!informantName.trim()) return;
-    try {
-      const { token } = await createInformant(informantName.trim(), informantEmoji || undefined);
-      setNewToken(token);
-      toast.success(`${informantName} is now an informant.`);
-    } catch {
-      toast.error("Couldn't create the informant.");
-    }
-  }
-
   function handleCloseInformantModal() {
     setCreatingInformant(false);
     setInformantName('');
-    setInformantEmoji('');
     setNewToken(null);
     setTokenCopied(false);
   }
@@ -190,6 +213,8 @@ export default function MembersScreen() {
     }
   }
 
+  const isLoading = loading || informantsLoading;
+
   return (
     <View className="flex-1 bg-stone-950">
       <BackgroundWatermark />
@@ -211,7 +236,7 @@ export default function MembersScreen() {
           </Pressable>
         </View>
 
-        {loading ? (
+        {isLoading ? (
           <View className="items-center justify-center py-12">
             <ActivityIndicator color="#78716c" />
             <Text className="mt-2 text-sm text-stone-500">Loading...</Text>
@@ -221,9 +246,12 @@ export default function MembersScreen() {
             {/* Consuls Section */}
             {consuls.length > 0 && (
               <View className="mb-8">
-                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
-                  Consuls
-                </Text>
+                <View className="flex-row items-center gap-1.5 mb-2 px-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Consuls
+                  </Text>
+                  <RoleTooltip role="consul" />
+                </View>
                 <View className="gap-2">
                   {consuls.map((member) => (
                     <MemberCard
@@ -240,9 +268,12 @@ export default function MembersScreen() {
             {/* Caporegimes Section */}
             {caporegimes.length > 0 && (
               <View className="mb-8">
-                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
-                  Caporegimes
-                </Text>
+                <View className="flex-row items-center gap-1.5 mb-2 px-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Caporegimes
+                  </Text>
+                  <RoleTooltip role="caporegime" />
+                </View>
                 <View className="gap-2">
                   {caporegimes.map((member) => (
                     <CaporegimeCard
@@ -264,9 +295,12 @@ export default function MembersScreen() {
             {/* Bookkeepers Section */}
             {bookkeepers.length > 0 && (
               <View className="mb-8">
-                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-2 px-1">
-                  Bookkeepers
-                </Text>
+                <View className="flex-row items-center gap-1.5 mb-2 px-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Bookkeepers
+                  </Text>
+                  <RoleTooltip role="bookkeeper" />
+                </View>
                 <View className="gap-2">
                   {bookkeepers.map((member) => (
                     <MemberCard
@@ -280,56 +314,35 @@ export default function MembersScreen() {
               </View>
             )}
 
+            {/* Informants Section */}
+            {informants.length > 0 && (
+              <View className="mb-8">
+                <View className="flex-row items-center gap-1.5 mb-2 px-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Informants
+                  </Text>
+                  <RoleTooltip role="informant" />
+                </View>
+                <View className="gap-2">
+                  {informants.map((informant) => (
+                    <InformantCard
+                      key={informant.id}
+                      informant={informant}
+                      onDelete={() => handleDeleteInformant(informant)}
+                      onRegenerate={() => handleRegenerateToken(informant)}
+                    />
+                  ))}
+                </View>
+                <InformantUsage />
+              </View>
+            )}
+
             {/* Empty state */}
-            {consuls.length === 0 && caporegimes.length === 0 && bookkeepers.length === 0 && (
+            {consuls.length === 0 && caporegimes.length === 0 && bookkeepers.length === 0 && informants.length === 0 && (
               <View className="items-center justify-center py-12">
                 <Text className="text-sm text-stone-500">No members yet.</Text>
               </View>
             )}
-          </>
-        )}
-
-        {/* Informants Section */}
-        <View className="mt-4 mb-6 flex-row items-center justify-between">
-          <View>
-            <Text className="font-serif text-2xl font-bold text-stone-100">Informants</Text>
-            <Text className="mt-1 text-sm text-stone-400">
-              External data pipelines feeding intel into sit-downs.
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => setCreatingInformant(true)}
-            className="flex-row items-center gap-2 rounded-lg bg-gold-600 px-4 py-2"
-          >
-            <Plus size={16} color="#0c0a09" />
-            <Text className="text-sm font-semibold text-stone-950">Informant</Text>
-          </Pressable>
-        </View>
-
-        {informantsLoading ? (
-          <View className="items-center justify-center py-8">
-            <ActivityIndicator color="#78716c" />
-          </View>
-        ) : informants.length === 0 ? (
-          <View className="items-center justify-center rounded-lg border border-dashed border-stone-800 py-8">
-            <Text className="text-sm text-stone-500">No informants yet.</Text>
-            <Text className="mt-1 text-xs text-stone-600">
-              Create one to feed external data into your sit-downs.
-            </Text>
-          </View>
-        ) : (
-          <>
-            <View className="gap-2">
-              {informants.map((informant) => (
-                <InformantCard
-                  key={informant.id}
-                  informant={informant}
-                  onDelete={() => handleDeleteInformant(informant)}
-                  onRegenerate={() => handleRegenerateToken(informant)}
-                />
-              ))}
-            </View>
-            <InformantUsage />
           </>
         )}
       </ScrollView>
@@ -344,93 +357,45 @@ export default function MembersScreen() {
         caporegimeId={editorCaporegimeId}
       />
 
-      {/* Informant Creator Modal */}
-      {creatingInformant && (
+      {/* Informant Token Display Modal */}
+      {creatingInformant && newToken && (
         <View className="absolute inset-0 items-center justify-center bg-black/60 px-4">
           <View className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6">
-            {newToken ? (
-              <>
-                <Text className="mb-1 font-serif text-xl font-bold text-stone-100">
-                  Informant Token
-                </Text>
-                <Text className="mb-4 text-xs text-stone-400">
-                  Save this token now. Only the prefix is stored — the full token cannot be retrieved later.
-                </Text>
+            <Text className="mb-1 font-serif text-xl font-bold text-stone-100">
+              Informant Token
+            </Text>
+            <Text className="mb-4 text-xs text-stone-400">
+              Save this token now. Only the prefix is stored — the full token cannot be retrieved later.
+            </Text>
 
-                <View className="mb-4 rounded-lg border border-stone-700 bg-stone-800 p-3">
-                  <Text className="font-mono text-xs leading-5 text-amber-400" selectable>
-                    {newToken}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={handleCopyToken}
-                  className="mb-4 flex-row items-center justify-center gap-2 rounded-lg border border-stone-600 bg-stone-800 py-2.5"
-                >
-                  {tokenCopied ? (
-                    <>
-                      <Check size={16} color="#22c55e" />
-                      <Text className="text-sm font-medium text-green-500">Copied</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={16} color="#d6d3d1" />
-                      <Text className="text-sm font-medium text-stone-300">Copy Token</Text>
-                    </>
-                  )}
-                </Pressable>
+            <View className="mb-4 rounded-lg border border-stone-700 bg-stone-800 p-3">
+              <Text className="font-mono text-xs leading-5 text-amber-400" selectable>
+                {newToken}
+              </Text>
+            </View>
+            <Pressable
+              onPress={handleCopyToken}
+              className="mb-4 flex-row items-center justify-center gap-2 rounded-lg border border-stone-600 bg-stone-800 py-2.5"
+            >
+              {tokenCopied ? (
+                <>
+                  <Check size={16} color="#22c55e" />
+                  <Text className="text-sm font-medium text-green-500">Copied</Text>
+                </>
+              ) : (
+                <>
+                  <Copy size={16} color="#d6d3d1" />
+                  <Text className="text-sm font-medium text-stone-300">Copy Token</Text>
+                </>
+              )}
+            </Pressable>
 
-                <Pressable
-                  onPress={handleCloseInformantModal}
-                  className="items-center rounded-lg bg-gold-600 py-2.5"
-                >
-                  <Text className="font-semibold text-stone-950">Done</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Text className="mb-4 font-serif text-xl font-bold text-stone-100">
-                  New Informant
-                </Text>
-
-                <Text className="mb-1 text-xs text-stone-400">Name</Text>
-                <TextInput
-                  value={informantName}
-                  onChangeText={setInformantName}
-                  placeholder="e.g. Market Whisper"
-                  placeholderTextColor="#57534e"
-                  className="mb-3 rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-sm text-stone-100"
-                  autoFocus
-                />
-
-                <Text className="mb-1 text-xs text-stone-400">Avatar emoji (optional)</Text>
-                <TextInput
-                  value={informantEmoji}
-                  onChangeText={setInformantEmoji}
-                  placeholder={'\u{1F50D}'}
-                  placeholderTextColor="#57534e"
-                  className="mb-4 rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-sm text-stone-100"
-                  maxLength={2}
-                />
-
-                <View className="flex-row gap-3">
-                  <Pressable
-                    onPress={handleCloseInformantModal}
-                    className="flex-1 items-center rounded-lg border border-stone-700 py-2.5"
-                  >
-                    <Text className="text-sm text-stone-400">Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleCreateInformant}
-                    disabled={!informantName.trim()}
-                    className={`flex-1 items-center rounded-lg py-2.5 ${informantName.trim() ? 'bg-gold-600' : 'bg-stone-700'}`}
-                  >
-                    <Text className={`text-sm font-semibold ${informantName.trim() ? 'text-stone-950' : 'text-stone-500'}`}>
-                      Create
-                    </Text>
-                  </Pressable>
-                </View>
-              </>
-            )}
+            <Pressable
+              onPress={handleCloseInformantModal}
+              className="items-center rounded-lg bg-gold-600 py-2.5"
+            >
+              <Text className="font-semibold text-stone-950">Done</Text>
+            </Pressable>
           </View>
         </View>
       )}

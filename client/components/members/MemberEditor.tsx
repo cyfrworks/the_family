@@ -15,8 +15,17 @@ import type { Provider, Member, MemberType } from '../../lib/types';
 import { PROVIDER_LABELS, MEMBER_TEMPLATES, CAPOREGIME_TEMPLATES, BOOKKEEPER_TEMPLATES, SOLDIER_TEMPLATES, MEMBER_TYPE_LABELS, MEMBER_TYPE_DESCRIPTIONS } from '../../config/constants';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { Dropdown } from '../ui/Dropdown';
+import { EmojiPicker } from '../ui/EmojiPicker';
 
-type CreatableMemberType = 'consul' | 'caporegime' | 'bookkeeper';
+type CreatableMemberType = 'consul' | 'caporegime' | 'bookkeeper' | 'informant';
+
+const DEFAULT_ROLE_EMOJI: Record<string, string> = {
+  consul: '\u{1F3AD}',
+  caporegime: '\u{1F44A}',
+  bookkeeper: '\u{1F4DA}',
+  informant: '\u{1F50D}',
+  soldier: '\u{1F9E0}',
+};
 
 interface MemberEditorProps {
   visible: boolean;
@@ -27,6 +36,7 @@ interface MemberEditorProps {
     system_prompt: string;
     member_type?: MemberType;
     caporegime_id?: string;
+    avatar_url?: string;
   }) => Promise<void>;
   onClose: () => void;
   /** Pre-set member type (e.g. for soldier creation) */
@@ -49,6 +59,8 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
     (forceMemberType as CreatableMemberType) ?? (member?.member_type as CreatableMemberType) ?? 'consul'
   );
   const [name, setName] = useState(member?.name ?? '');
+  const initialRole = (forceMemberType as string) ?? (member?.member_type as string) ?? 'consul';
+  const [avatarEmoji, setAvatarEmoji] = useState(member?.avatar_url ?? DEFAULT_ROLE_EMOJI[initialRole] ?? '');
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [catalogModelId, setCatalogModelId] = useState(member?.catalog_model_id ?? '');
   const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? '');
@@ -75,7 +87,9 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
       refetchCatalog();
       setShowTemplatePicker(false);
       setShowRolePicker(false);
+      const role = (forceMemberType as string) ?? (member?.member_type as string) ?? 'consul';
       setName(member?.name ?? '');
+      setAvatarEmoji(member?.avatar_url ?? DEFAULT_ROLE_EMOJI[role] ?? '');
       setProvider(member?.catalog_model?.provider ?? availableProviders[0] ?? 'claude');
       setCatalogModelId(member?.catalog_model_id ?? '');
       setSystemPrompt(member?.system_prompt ?? '');
@@ -98,6 +112,9 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
     setShowModelPicker(false);
   }
 
+  const isInformant = (forceMemberType ?? memberType) === 'informant';
+  const needsModel = !isInformant;
+
   // Get templates for current role
   const templates = forceMemberType === 'soldier'
     ? SOLDIER_TEMPLATES
@@ -107,11 +124,9 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
         ? BOOKKEEPER_TEMPLATES
         : MEMBER_TEMPLATES;
 
-  const needsModel = true;
-
   async function handleSubmit() {
     if (!name.trim()) return;
-    if (!effectiveCatalogModelId) return;
+    if (needsModel && !effectiveCatalogModelId) return;
 
     setSaving(true);
     try {
@@ -121,12 +136,14 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
         system_prompt: string;
         member_type?: MemberType;
         caporegime_id?: string;
+        avatar_url?: string;
       } = {
         name: name.trim(),
         system_prompt: systemPrompt,
+        avatar_url: avatarEmoji || undefined,
       };
 
-      if (effectiveCatalogModelId) {
+      if (needsModel && effectiveCatalogModelId) {
         data.catalog_model_id = effectiveCatalogModelId;
       }
 
@@ -145,7 +162,17 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
 
   const selectedModelAlias = providerModels.find((m) => m.id === effectiveCatalogModelId)?.alias ?? 'Select model';
 
-  const roleOptions: CreatableMemberType[] = ['consul', 'caporegime', 'bookkeeper'];
+  const roleOptions: CreatableMemberType[] = ['consul', 'caporegime', 'bookkeeper', 'informant'];
+
+  const headerTitle = isEditing.current
+    ? 'Reassign Member'
+    : forceMemberType === 'soldier'
+      ? 'Add Soldier'
+      : isInformant
+        ? 'New Informant'
+        : 'Recruit Member';
+
+  const submitDisabled = saving || !name.trim() || (needsModel && (catalogLoading || availableProviders.length === 0));
 
   return (
     <Modal
@@ -174,11 +201,7 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
             {/* Header */}
             <View className="flex-row items-center justify-between border-b border-stone-800 px-5 py-4">
               <Text className="font-serif text-lg font-bold text-stone-100">
-                {isEditing.current
-                  ? 'Reassign Member'
-                  : forceMemberType === 'soldier'
-                    ? 'Add Soldier'
-                    : 'Recruit Member'}
+                {headerTitle}
               </Text>
               <Pressable onPress={onClose} className="p-1">
                 <X size={20} color="#a8a29e" />
@@ -188,7 +211,7 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
             {/* Form */}
             <ScrollView className="max-h-[70vh]" keyboardShouldPersistTaps="handled">
               <View className="p-5 gap-4">
-                {member && !member.catalog_model && (
+                {member && !member.catalog_model && !isInformant && (
                   <View className="flex-row items-center gap-1.5">
                     <AlertTriangle size={12} color="#d97706" />
                     <Text className="text-xs text-amber-500">Model removed — pick a new one</Text>
@@ -222,6 +245,9 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                           key={r}
                           onPress={() => {
                             setMemberType(r);
+                            // Update emoji to new role default if current is a role default or empty
+                            const isDefault = !avatarEmoji || Object.values(DEFAULT_ROLE_EMOJI).includes(avatarEmoji);
+                            if (isDefault) setAvatarEmoji(DEFAULT_ROLE_EMOJI[r] ?? '');
                             setShowRolePicker(false);
                           }}
                           className={`px-3 py-2.5 ${r === memberType ? 'bg-stone-700' : ''}`}
@@ -234,8 +260,8 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                   </View>
                 )}
 
-                {/* Template (create only) */}
-                {!isEditing.current && (
+                {/* Template (create only, not for informant) */}
+                {!isEditing.current && !isInformant && (
                   <View>
                     <Text className="mb-1 text-sm font-medium text-stone-300">Template</Text>
                     <Dropdown
@@ -261,6 +287,7 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                           key={t.slug}
                           onPress={() => {
                             setName(t.name);
+                            setAvatarEmoji(t.avatar_emoji);
                             setSystemPrompt(t.system_prompt);
                             setShowTemplatePicker(false);
                           }}
@@ -283,11 +310,14 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                   <TextInput
                     value={name}
                     onChangeText={setName}
-                    placeholder={memberType === 'caporegime' ? 'The Captain' : memberType === 'bookkeeper' ? 'The Archivist' : 'The Consigliere'}
+                    placeholder={isInformant ? 'e.g. Market Whisper' : memberType === 'caporegime' ? 'The Captain' : memberType === 'bookkeeper' ? 'The Archivist' : 'The Consigliere'}
                     placeholderTextColor="#57534e"
                     className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-stone-100"
                   />
                 </View>
+
+                {/* Avatar Emoji */}
+                <EmojiPicker value={avatarEmoji} onChange={setAvatarEmoji} />
 
                 {/* Provider & Model pickers */}
                 {needsModel && (
@@ -374,20 +404,22 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                 )}
 
                 {/* System Prompt */}
-                <View>
-                  <Text className="mb-1 text-sm font-medium text-stone-300">System Prompt</Text>
-                  <TextInput
-                    value={systemPrompt}
-                    onChangeText={setSystemPrompt}
-                    placeholder="Describe this member's personality, speaking style, and expertise..."
-                    placeholderTextColor="#57534e"
-                    multiline
-                    numberOfLines={6}
-                    textAlignVertical="top"
-                    className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-stone-100"
-                    style={{ minHeight: 140 }}
-                  />
-                </View>
+                {needsModel && (
+                  <View>
+                    <Text className="mb-1 text-sm font-medium text-stone-300">System Prompt</Text>
+                    <TextInput
+                      value={systemPrompt}
+                      onChangeText={setSystemPrompt}
+                      placeholder="Describe this member's personality, speaking style, and expertise..."
+                      placeholderTextColor="#57534e"
+                      multiline
+                      numberOfLines={6}
+                      textAlignVertical="top"
+                      className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5 text-stone-100"
+                      style={{ minHeight: 140 }}
+                    />
+                  </View>
+                )}
 
                 {/* Actions */}
                 <View className="flex-row justify-end gap-2 pt-2">
@@ -399,10 +431,8 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                   </Pressable>
                   <Pressable
                     onPress={handleSubmit}
-                    disabled={saving || catalogLoading || availableProviders.length === 0 || !name.trim()}
-                    className={`rounded-lg bg-gold-600 px-4 py-2.5 ${
-                      saving || catalogLoading || availableProviders.length === 0 || !name.trim() ? 'opacity-50' : ''
-                    }`}
+                    disabled={submitDisabled}
+                    className={`rounded-lg bg-gold-600 px-4 py-2.5 ${submitDisabled ? 'opacity-50' : ''}`}
                   >
                     {saving ? (
                       <ActivityIndicator size="small" color="#0c0a09" />

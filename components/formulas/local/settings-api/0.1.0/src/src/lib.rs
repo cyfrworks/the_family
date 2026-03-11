@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.2";
+const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
 const MIN_PASSWORD_LENGTH: usize = 8;
 
 fn handle_request(input: &str) -> Result<String, String> {
@@ -58,11 +58,23 @@ fn handle_request(input: &str) -> Result<String, String> {
     match action {
         "get_profile" => get_profile(access_token),
         "update_profile" => {
-            let display_name = parsed
-                .get("display_name")
+            let display_name = parsed.get("display_name").and_then(|v| v.as_str());
+            let avatar_url = parsed.get("avatar_url").and_then(|v| v.as_str());
+            if display_name.is_none() && avatar_url.is_none() {
+                return Err("Must provide 'display_name' or 'avatar_url'".to_string());
+            }
+            update_profile(access_token, display_name, avatar_url)
+        }
+        "upload_avatar" => {
+            let image_base64 = parsed
+                .get("image_base64")
                 .and_then(|v| v.as_str())
-                .ok_or("Missing required 'display_name'")?;
-            update_profile(access_token, display_name)
+                .ok_or("Missing required 'image_base64'")?;
+            let supabase_url = parsed
+                .get("supabase_url")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'supabase_url'")?;
+            upload_avatar(access_token, image_base64, supabase_url)
         }
         "change_password" => {
             let email = parsed
@@ -136,7 +148,7 @@ fn get_profile(access_token: &str) -> Result<String, String> {
         "db.select",
         json!({
             "table": "profiles",
-            "select": "id,display_name,tier",
+            "select": "id,display_name,avatar_url,tier",
             "filters": [
                 { "column": "id", "op": "eq", "value": user_id }
             ],
@@ -153,22 +165,29 @@ fn get_profile(access_token: &str) -> Result<String, String> {
     Ok(json!({ "profile": row }).to_string())
 }
 
-fn update_profile(access_token: &str, display_name: &str) -> Result<String, String> {
+fn update_profile(access_token: &str, display_name: Option<&str>, avatar_url: Option<&str>) -> Result<String, String> {
     let user = fetch_user(access_token)?;
     let user_id = user
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or("Could not determine user ID from token")?;
 
-    if display_name.trim().is_empty() {
-        return Err("Display name cannot be empty".to_string());
+    let mut body = json!({});
+    if let Some(name) = display_name {
+        if name.trim().is_empty() {
+            return Err("Display name cannot be empty".to_string());
+        }
+        body["display_name"] = json!(name);
+    }
+    if let Some(url) = avatar_url {
+        body["avatar_url"] = json!(url);
     }
 
     let updated = supabase_call(
         "db.update",
         json!({
             "table": "profiles",
-            "body": { "display_name": display_name },
+            "body": body,
             "filters": [
                 { "column": "id", "op": "eq", "value": user_id }
             ],
@@ -177,6 +196,50 @@ fn update_profile(access_token: &str, display_name: &str) -> Result<String, Stri
     )?;
 
     Ok(json!({ "updated": updated }).to_string())
+}
+
+fn upload_avatar(access_token: &str, image_base64: &str, supabase_url: &str) -> Result<String, String> {
+    let user = fetch_user(access_token)?;
+    let user_id = user
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or("Could not determine user ID from token")?;
+
+    // Upload to storage via catalyst with base64 encoding
+    // Use service_role to bypass RLS — safe because we already verified user identity above
+    supabase_call(
+        "storage.upload",
+        json!({
+            "bucket": "avatars",
+            "path": format!("{user_id}/avatar.jpg"),
+            "body": image_base64,
+            "body_encoding": "base64",
+            "content_type": "image/jpeg",
+            "upsert": true,
+            "service_role": true
+        }),
+    )?;
+
+    // Construct the public URL with cache-busting timestamp
+    let supabase_url = supabase_url.trim_end_matches('/');
+    let public_url = format!(
+        "{supabase_url}/storage/v1/object/public/avatars/{user_id}/avatar.jpg"
+    );
+
+    // Update profile with new avatar URL (without timestamp — client appends ?t= for cache busting)
+    supabase_call(
+        "db.update",
+        json!({
+            "table": "profiles",
+            "body": { "avatar_url": public_url },
+            "filters": [
+                { "column": "id", "op": "eq", "value": user_id }
+            ],
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "avatar_url": public_url }).to_string())
 }
 
 fn register_push_token(access_token: &str, token: &str, platform: &str) -> Result<String, String> {

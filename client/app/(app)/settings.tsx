@@ -10,15 +10,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LogOut } from 'lucide-react-native';
+import { LogOut, Camera } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useRealtimeStatus } from '../../hooks/useRealtimeStatus';
+import { useAvatarUpload } from '../../hooks/useAvatarUpload';
 import { cyfrCall } from '../../lib/cyfr';
 import { getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../../lib/supabase';
 import { getSupabase } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
+import { UserAvatar } from '../../components/common/UserAvatar';
 import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
 import { RunYourFamilyButton } from '../../components/common/RunYourFamilyButton';
 
@@ -26,7 +28,8 @@ const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { profile, user, tier, signOut } = useAuth();
+  const { profile, user, tier, signOut, updateProfile } = useAuth();
+  const { pickAndUpload, uploading } = useAvatarUpload();
   const { isDesktop } = useResponsive();
   const realtimeConnected = useRealtimeStatus();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
@@ -55,11 +58,20 @@ export default function SettingsScreen() {
       const res = result as Record<string, unknown> | null;
       if (res?.error) throw new Error((res.error as Record<string, string>).message);
 
+      updateProfile({ display_name: displayName });
       toast.success('Your identity has been updated.');
     } catch {
       toast.error("Couldn't change your papers.");
     }
     setSaving(false);
+  }
+
+  async function handleAvatarUpload() {
+    const avatarUrl = await pickAndUpload();
+    if (avatarUrl) {
+      updateProfile({ avatar_url: avatarUrl });
+      toast.success('Your portrait has been updated.');
+    }
   }
 
   async function handleChangePassword() {
@@ -133,6 +145,25 @@ export default function SettingsScreen() {
 
             {/* Profile form */}
             <View className="rounded-xl border border-stone-800 bg-stone-900 p-6 gap-4">
+              {/* Avatar upload */}
+              <View className="items-center">
+                <Pressable onPress={handleAvatarUpload} disabled={uploading}>
+                  <View style={{ position: 'relative' }}>
+                    <UserAvatar profile={profile} size={64} />
+                    <View
+                      className="absolute -bottom-1 -right-1 items-center justify-center rounded-full bg-gold-600"
+                      style={{ width: 24, height: 24 }}
+                    >
+                      {uploading ? (
+                        <ActivityIndicator size={12} color="#0c0a09" />
+                      ) : (
+                        <Camera size={12} color="#0c0a09" />
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+              </View>
+
               <View>
                 <Text className="mb-1 text-sm font-medium text-stone-300">Display Name</Text>
                 <TextInput
@@ -226,11 +257,7 @@ export default function SettingsScreen() {
             {!isDesktop && (
               <View className="mt-3 rounded-xl border border-stone-800 bg-stone-900 p-4">
                 <View className="flex-row items-center gap-3">
-                  <View className="h-12 w-12 items-center justify-center rounded-full bg-gold-600">
-                    <Text className="text-lg font-bold text-stone-950">
-                      {profile?.display_name?.[0]?.toUpperCase() ?? 'D'}
-                    </Text>
-                  </View>
+                  <UserAvatar profile={profile} size={48} />
                   <View className="flex-1">
                     <Text className="text-base font-semibold text-stone-200">
                       {profile?.display_name ?? 'Don'}
