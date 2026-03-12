@@ -3,10 +3,10 @@
   "type": "formula",
   "publisher": "local",
   "version": "0.1.0",
-  "description": "Caporegime member — agentic orchestrator with tool use, crew delegation, and operation tracking",
+  "description": "Caporegime — two-mode workflow orchestrator: Brain (agentic, LLM-driven) for interpreting orders, Hands (mechanical) for executing saved jobs",
   "setup": {
     "policy": {
-      "allowed_tools": ["execution.run", "execution.list", "tools.list"],
+      "allowed_tools": ["execution.run", "execution.list", "schedule.create", "schedule.list", "schedule.pause", "schedule.delete"],
       "timeout": "10m",
       "max_concurrent_tasks": 10,
       "batch_timeout": "5m"
@@ -15,15 +15,20 @@
   "schema": {
     "input": {
       "type": "object",
-      "required": ["catalyst_ref", "model"],
       "properties": {
+        "action": {
+          "type": "string",
+          "description": "Mode: 'respond' (Brain — agentic loop, default) or 'execute_job' (Hands — mechanical step executor)",
+          "enum": ["respond", "execute_job"],
+          "default": "respond"
+        },
         "catalyst_ref": {
           "type": "string",
-          "description": "LLM catalyst reference to use for the agentic loop"
+          "description": "LLM catalyst reference (required for 'respond' mode)"
         },
         "model": {
           "type": "string",
-          "description": "Model identifier for the catalyst"
+          "description": "Model identifier (required for 'respond' mode)"
         },
         "system": {
           "type": "string",
@@ -31,7 +36,7 @@
         },
         "conversation": {
           "type": "array",
-          "description": "Chat messages for context"
+          "description": "Chat messages for context (respond mode)"
         },
         "sit_down_id": {
           "type": "string",
@@ -39,7 +44,7 @@
         },
         "member_id": {
           "type": "string",
-          "description": "Caporegime member ID"
+          "description": "Caporegime member ID (respond mode)"
         },
         "access_token": {
           "type": "string",
@@ -55,11 +60,27 @@
         },
         "reply_to_id": {
           "type": "string",
-          "description": "Message ID being replied to"
+          "description": "Message ID being replied to (respond mode)"
         },
         "max_turns": {
           "type": "integer",
-          "description": "Maximum agentic loop turns (default: 30)"
+          "description": "Maximum agentic loop turns (default: 30, respond mode only)"
+        },
+        "job_id": {
+          "type": "string",
+          "description": "Job ID to execute (execute_job mode)"
+        },
+        "steps": {
+          "type": "array",
+          "description": "Inline step definitions (execute_job mode, alternative to job_id)"
+        },
+        "caporegime_id": {
+          "type": "string",
+          "description": "Caporegime member ID (execute_job mode)"
+        },
+        "owner_id": {
+          "type": "string",
+          "description": "Owner user ID (execute_job mode)"
         }
       }
     },
@@ -68,7 +89,7 @@
       "properties": {
         "content": {
           "type": "string",
-          "description": "Final report text from the caporegime"
+          "description": "Final report text (respond mode)"
         },
         "message_id": {
           "type": "string",
@@ -80,11 +101,19 @@
         },
         "turns": {
           "type": "integer",
-          "description": "Number of agentic loop turns used"
+          "description": "Number of agentic loop turns used (respond mode)"
         },
         "usage": {
           "type": "object",
-          "description": "Aggregate token usage across all turns"
+          "description": "Aggregate token usage (respond mode)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Execution status (execute_job mode)"
+        },
+        "result": {
+          "type": "string",
+          "description": "Final step output (execute_job mode)"
         }
       }
     }
@@ -97,15 +126,16 @@
       { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
       { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
       { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" },
-      { "ref": "formula:local.consul:0.1.0", "reason": "Soldier delegation" },
-      { "ref": "formula:local.bookkeeper:0.1.0", "optional": true, "reason": "Bookkeeper operations" }
+      { "ref": "formula:local.consul:0.1.0", "reason": "Soldier delegation via consul" },
+      { "ref": "formula:local.bookkeeper:0.1.0", "reason": "Bookkeeper data operations" }
     ]
   },
   "examples": [
     {
-      "name": "Run an agentic task",
+      "name": "Brain mode — agentic task",
       "description": "Execute a multi-turn agentic operation with tool use and crew delegation",
       "input": {
+        "action": "respond",
         "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
         "model": "claude-sonnet-4-6",
         "system": "You handle operations for the Family.",
@@ -123,6 +153,22 @@
         "operation_id": "op-1",
         "turns": 5,
         "usage": { "input_tokens": 5000, "output_tokens": 2000 }
+      }
+    },
+    {
+      "name": "Hands mode — execute a saved job",
+      "description": "Mechanically execute a saved workflow without an orchestration LLM",
+      "input": {
+        "action": "execute_job",
+        "job_id": "job-uuid",
+        "caporegime_id": "mem-capo-1",
+        "owner_id": "user-1",
+        "access_token": "eyJ..."
+      },
+      "output": {
+        "operation_id": "op-2",
+        "status": "completed",
+        "result": "Job output..."
       }
     }
   ]

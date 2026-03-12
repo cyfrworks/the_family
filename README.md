@@ -75,11 +75,11 @@
 - **The whole table talks** — call on multiple Members and the server spawns them asynchronously. Each responds independently with their own personality, model, and provider.
 - **The full hierarchy** — five member types, each with a distinct role in the family:
   - **Consuls** — one-shot advisors, @mentionable, respond with a single message
-  - **Caporegimes** — orchestrators with agentic tool use, acknowledge orders immediately, work in the background, and post a report back to the sit-down
+  - **Caporegimes** — two-mode workflow orchestrators. **Brain mode**: agentic loop with hardcoded tools (delegate to soldiers, read/write bookkeeper data, manage jobs). **Hands mode**: mechanical step executor for saved jobs — no orchestration LLM, supports parallel fan-out and CYFR cron scheduling
   - **Soldiers** — crew members nested under a Caporegime, not @mentionable by the Don, invoked only by their captain during operations
   - **Bookkeepers** — knowledge stores, @mentionable for queries, each with their own browsable entry database
   - **Informants** — push-only service members with API tokens for external integrations
-- **Operations dashboard** — every Caporegime run is tracked: status, tool calls, token usage, and results. Live updates via realtime.
+- **Operations dashboard** — every Caporegime run is tracked: status, tool calls, token usage, and results. Mechanical job executions log step-level detail. Live updates via realtime.
 - **The Commission** — invite other Dons by email, form alliances, run inter-family sit-downs where multiple Dons bring their own crews to the same table.
 - **The Godfather runs the catalog** — admin-curated model catalog with aliases that hide raw model IDs. Hot-swap the underlying model and nobody notices. Tier-gated access (Godfather / Boss / Associate).
 - **Multi-provider muscle** — Claude, OpenAI, Gemini, Grok, and OpenRouter Members working the same sit-down, each routed to their own provider.
@@ -90,7 +90,7 @@
 ```
 Don (human user)
 ├── Consuls — advisors, @mentionable, one-shot responses
-├── Caporegimes — orchestrators, @mentionable, agentic tool use
+├── Caporegimes — orchestrators, @mentionable, Brain (agentic) + Hands (mechanical jobs)
 │   └── Soldiers — crew members, invoked only by their captain
 ├── Bookkeepers — knowledge stores, @mentionable for queries
 └── Informants — external data, push-only via API token
@@ -149,11 +149,11 @@ Templates are personality-only — the model is chosen at creation time from wha
 Create a project at [supabase.com](https://supabase.com), then run the migrations:
 
 ```
-Run each SQL file from the migrations/ directory (001 through 014)
+Run each SQL file from the migrations/ directory (001 through 018)
 in order in your Supabase project → SQL Editor → New Query → Run
 ```
 
-This sets up the whole operation: tables (`profiles`, `model_catalog`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`, `informants`, `informant_tokens`, `operations`, `bookkeeper_entries`), RLS policies, triggers, and RPC functions.
+This sets up the whole operation: tables (`profiles`, `model_catalog`, `members`, `sit_downs`, `sit_down_participants`, `messages`, `commission_contacts`, `typing_indicators`, `informants`, `informant_tokens`, `operations`, `bookkeeper_entries`, `jobs`), RLS policies, triggers, and RPC functions.
 
 After running the migrations, promote your first user to Godfather so they can manage the model catalog:
 
@@ -231,6 +231,7 @@ cyfr policy set f:local.members-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.admin-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.sit-down:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.family-member:0.1.0 allowed_tools '["execution.run", "execution.list", "tools.list", "cron.create", "cron.list", "cron.update", "cron.delete"]'
+cyfr policy set f:local.caporegime:0.1.0 allowed_tools '["execution.run", "execution.list", "schedule.create", "schedule.list", "schedule.pause", "schedule.delete"]'
 cyfr policy set f:local.bookkeeper-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.informant-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.list-models:0.5.0 allowed_tools '["execution.run"]'
@@ -268,6 +269,7 @@ And these formula tool policies (formulas dispatch sub-component calls via MCP t
 |-----------|--------------|
 | All API formulas | `execution.run` |
 | `local.family-member` | `execution.run`, `execution.list`, `tools.list`, `cron.*` |
+| `local.caporegime` | `execution.run`, `execution.list`, `schedule.*` |
 | `local.informant-api` | `execution.run` |
 | `local.list-models` | `execution.run` |
 
@@ -312,13 +314,17 @@ The Godfather manages a `model_catalog` table that maps user-facing aliases (e.g
 @mention a Member and they respond. @all and everyone at the table speaks. The `sit-down` formula routes each mention to the `family-member` formula, which handles behavior per member type:
 
 - **Consuls** — single-shot LLM call, response appears directly in the sit-down
-- **Caporegimes** — acknowledge immediately ("On it, boss."), run an agentic loop with MCP tools in the background, then post a summary report back to the sit-down. Full details tracked in the Operations table
+- **Caporegimes** — acknowledge immediately ("On it, boss."), run Brain mode: an agentic loop with hardcoded tools (delegate to soldiers, search/store bookkeeper data, read journal, create/run jobs). Posts a summary report back to the sit-down. Can also run in Hands mode for saved jobs — mechanical step execution with no orchestration LLM, supporting parallel fan-out and CYFR cron scheduling. Full details tracked in the Operations table
 - **Bookkeepers** — search their knowledge store for relevant entries, synthesize an answer with LLM context
 - **Soldiers** — never invoked directly. A Caporegime delegates tasks to its soldiers during its agentic loop
 
 ### Operations
 
-Every Caporegime run creates an operation record: status (running/completed/failed), task summary, tool calls, token usage, and results. The Operations dashboard shows live status updates via realtime subscriptions.
+Every Caporegime run creates an operation record: status (running/completed/failed), task summary, tool calls, token usage, and results. Brain mode logs each agentic tool call; Hands mode logs step-level soldier invocations in the `tool_calls` JSONB. The Operations dashboard shows live status updates via realtime subscriptions.
+
+### Jobs
+
+Caporegimes can create and schedule recurring workflows. A **job** is a saved sequence of steps (delegate, for_each) stored in the `jobs` table. Brain mode creates jobs via the `create_job` tool; Hands mode executes them mechanically. Jobs support CYFR native cron scheduling — the caporegime calls `schedule.create` to register a cron expression, and CYFR invokes the formula's `execute_job` action on schedule. Jobs can also be triggered on demand via the `run_job` tool.
 
 ### Bookkeepers
 
@@ -422,6 +428,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes, push token registration |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
 | `formula:local.informant-api:0.1.0` | Formula | Local | Informant token auth + message dispatch |
+| `formula:local.caporegime:0.1.0` | Formula | Local | Two-mode workflow orchestrator — Brain (agentic) + Hands (mechanical jobs) |
+| `formula:local.consul:0.1.0` | Formula | Local | Single-shot LLM invocation for soldier delegation |
+| `formula:local.bookkeeper:0.1.0` | Formula | Local | Bookkeeper data operations (list, search, create entries) |
 | `formula:local.list-models:0.5.0` | Formula | Local | Aggregates models across all AI provider catalysts |
 | `reagent:local.mention-parser:0.1.0` | Reagent | Local | Parses @mentions, resolves names, handles @all |
 
@@ -497,6 +506,9 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │           ├── commission-api/0.1.0/   # Commission contact management
 │           ├── family-member/0.1.0/    # Unified behavior engine
 │           ├── informant-api/0.1.0/    # Informant token auth + message dispatch
+│           ├── caporegime/0.1.0/       # Two-mode workflow orchestrator
+│           ├── consul/0.1.0/          # Single-shot LLM invocation (soldier delegation)
+│           ├── bookkeeper/0.1.0/      # Bookkeeper data operations
 │           ├── list-models/0.5.0/      # Model listing aggregation (local)
 │           ├── members-api/0.1.0/      # Member CRUD + crew management
 │           ├── settings-api/0.1.0/     # Profile + password management
@@ -505,7 +517,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── catalyst/                   # Catalyst WIT (run, http, secrets)
 │   ├── formula/                    # Formula WIT (run, invoke)
 │   └── reagent/                    # Reagent WIT
-├── migrations/                     # Database migrations (001 through 015)
+├── migrations/                     # Database migrations (001 through 018)
 ├── inform-proxy.js                 # REST-to-CYFR proxy for /inform endpoint
 ├── docker-compose.yml              # CYFR + inform-proxy + web build + Caddy
 ├── Caddyfile                       # Caddy reverse proxy config (production)

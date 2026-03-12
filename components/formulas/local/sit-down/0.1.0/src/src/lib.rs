@@ -1180,7 +1180,7 @@ fn respond_member(
     let (catalyst_ref, _) = resolve_provider_ref(provider)?;
 
     // 3. Build system prompt + conversation history
-    let system_prompt = build_system_prompt(&member, sit_down, participants);
+    let system_prompt = build_system_prompt(&member, sit_down, participants, user_id);
     let conversation = build_conversation_history(member_id, messages, sit_down, participants);
 
     // 5. Resolve the formula ref based on member_type
@@ -1299,7 +1299,7 @@ fn respond_member(
 // 6. AI provider helpers (from sit-down-response)
 // ---------------------------------------------------------------------------
 
-fn build_system_prompt(member: &Value, sit_down: &Value, participants: &Value) -> String {
+fn build_system_prompt(member: &Value, sit_down: &Value, participants: &Value, sender_user_id: &str) -> String {
     let member_name = member.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
     let owner_id = member.get("owner_id").and_then(|v| v.as_str()).unwrap_or("");
     let custom_prompt = member.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
@@ -1344,6 +1344,12 @@ fn build_system_prompt(member: &Value, sit_down: &Value, participants: &Value) -
         })
         .unwrap_or_default();
 
+    // Resolve who is addressing this AI
+    let sender_name = dons
+        .iter()
+        .find(|(uid, _)| *uid == sender_user_id)
+        .map(|(_, name)| *name);
+
     if is_commission {
         let owner_don_name = dons
             .iter()
@@ -1352,8 +1358,14 @@ fn build_system_prompt(member: &Value, sit_down: &Value, participants: &Value) -
             .unwrap_or_else(|| "your Don".to_string());
 
         preamble.push_str(&format!(
-            "\n\nYou were created by {owner_don_name}. You report to {owner_don_name}."
+            "\n\nYou belong to {owner_don_name}'s family."
         ));
+
+        if let Some(name) = sender_name {
+            preamble.push_str(&format!(
+                " You are currently being addressed by {name}."
+            ));
+        }
 
         let mut family_lines = Vec::new();
         for (don_uid, don_name) in &dons {
@@ -1364,29 +1376,30 @@ fn build_system_prompt(member: &Value, sit_down: &Value, participants: &Value) -
                 .collect();
 
             if don_members.is_empty() {
-                family_lines.push(format!("- Don {don_name} (no members at the table)"));
+                family_lines.push(format!("- {don_name} (no members at the table)"));
             } else {
                 family_lines.push(format!(
-                    "- Don {don_name}'s team: {}",
+                    "- {don_name}'s team: {}",
                     don_members.join(", ")
                 ));
             }
         }
 
         preamble.push_str(&format!(
-            "\n\nThis is a group sit-down. The people and roles present are:\n{}",
+            "\n\nThis is a commission sit-down. The people present are:\n{}",
             family_lines.join("\n")
         ));
 
         preamble.push_str(&format!(
-            "\n\nAlways address Dons as \"Don [Name]\". Be helpful to everyone, \
-             but if there's a conflict of interest, defer to {owner_don_name}."
+            "\n\nYour loyalty is to {owner_don_name}. Be helpful to everyone at the table, \
+             but if there's a conflict of interest, prioritize {owner_don_name}'s interests."
         ));
-    } else if !dons.is_empty() {
-        let don_name = dons[0].1;
-        preamble.push_str(&format!(
-            " You report to Don {don_name}. Always address them as \"Don {don_name}\"."
-        ));
+    } else {
+        if let Some(name) = sender_name {
+            preamble.push_str(&format!(
+                " You work for {name}."
+            ));
+        }
     }
 
     format!("{preamble}\n\n{custom_prompt}")
