@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { auth, getAccessToken, setAccessToken, hydrateTokens, initAuthListener } from '../lib/supabase';
-import { clearRealtime } from '../lib/realtime';
+import { clearRealtime, getSupabase } from '../lib/realtime';
 import { cyfrCall } from '../lib/cyfr';
 import { getCurrentPushToken, unregisterPushToken } from '../lib/notifications';
 import type { Profile, UserTier } from '../lib/types';
@@ -19,10 +19,12 @@ interface AuthState {
   tier: UserTier;
   isGodfather: boolean;
   loading: boolean;
+  aiDisclosureAccepted: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: { display_name?: string; avatar_url?: string }) => void;
+  acceptAiDisclosure: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -31,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [aiDisclosureAccepted, setAiDisclosureAccepted] = useState(false);
   const initRef = useRef(false);
 
   const tier: UserTier = profile?.tier ?? 'associate';
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (currentUser) {
           setAccessToken(getAccessToken());
           setUser({ id: currentUser.id, email: currentUser.email });
+          setAiDisclosureAccepted(!!currentUser.user_metadata?.ai_disclosure_accepted);
           await fetchProfile();
         }
       } catch (err) {
@@ -126,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokens = await auth.signIn(email, password);
     const u = { id: tokens.user.id, email: tokens.user.email };
     setUser(u);
+    setAiDisclosureAccepted(!!tokens.user.user_metadata?.ai_disclosure_accepted);
     await fetchProfile();
   }
 
@@ -138,8 +143,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const u = { id: tokens.user.id, email: tokens.user.email };
     setUser(u);
+    setAiDisclosureAccepted(!!tokens.user.user_metadata?.ai_disclosure_accepted);
     await new Promise((r) => setTimeout(r, 500));
     await fetchProfile();
+  }
+
+  async function acceptAiDisclosure() {
+    setAiDisclosureAccepted(true);
+    try {
+      const { error } = await getSupabase().auth.updateUser({ data: { ai_disclosure_accepted: true } });
+      if (error) console.warn('Failed to persist AI disclosure:', error.message);
+    } catch (err) {
+      console.warn('Failed to persist AI disclosure:', err);
+    }
   }
 
   function updateProfile(updates: { display_name?: string; avatar_url?: string }) {
@@ -159,7 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, tier, isGodfather, loading, signIn, signUp, signOut, updateProfile }}>
+    <AuthContext.Provider value={{ user, profile, tier, isGodfather, loading, aiDisclosureAccepted, signIn, signUp, signOut, updateProfile, acceptAiDisclosure }}>
       {children}
     </AuthContext.Provider>
   );

@@ -10,10 +10,11 @@ import { FamilySitDownProvider } from '../../contexts/FamilySitDownContext';
 import { RealtimeProvider } from '../../providers/RealtimeProvider';
 import { Sidebar } from '../../components/layout/Sidebar';
 import { MobileTabBar } from '../../components/layout/MobileTabBar';
+import { AiDisclosureScreen } from '../../components/AiDisclosureScreen';
 import { View, Text, ActivityIndicator } from 'react-native';
 
 export default function AppLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, aiDisclosureAccepted } = useAuth();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isDesktop = width >= 1024;
@@ -28,6 +29,10 @@ export default function AppLayout() {
 
   if (!user) {
     return <Redirect href="/(auth)/login" />;
+  }
+
+  if (!aiDisclosureAccepted) {
+    return <AiDisclosureScreen />;
   }
 
   if (isDesktop) {
