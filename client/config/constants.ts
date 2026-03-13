@@ -1,4 +1,4 @@
-import type { Provider, MemberTemplate, MemberType, UserTier } from '../lib/types';
+import type { Provider, MemberTemplate, MemberType, UserTier, SoldierType } from '../lib/types';
 
 export const PROVIDERS: Provider[] = ['claude', 'openai', 'gemini', 'grok', 'openrouter'];
 
@@ -198,6 +198,16 @@ Style: Go beyond retrieval — analyze. "Looking at the records together, a patt
   },
 ];
 
+export const SOLDIER_TYPE_LABELS: Record<SoldierType, string> = {
+  default: 'Default',
+  external: 'External API',
+};
+
+export const SOLDIER_TYPE_DESCRIPTIONS: Record<SoldierType, string> = {
+  default: 'Single-shot LLM response with web search',
+  external: 'Agentic — calls external APIs via web catalyst',
+};
+
 export const SOLDIER_TEMPLATES: MemberTemplate[] = [
   {
     name: 'Il Ricercatore',
@@ -245,6 +255,31 @@ Personality traits:
 
 Style: Receive a technical question, provide expert-level analysis. Be precise, be practical, be honest about uncertainty.`,
   },
+  {
+    name: "L'Agente Esterno",
+    slug: 'agente-esterno',
+    avatar_emoji: '\u{1F310}',
+    description: 'The API agent. Connects to external services and retrieves data.',
+    system_prompt: 'EXTERNAL_SOLDIER', // sentinel — resolved at runtime
+  },
 ];
+
+export const EXTERNAL_SOLDIER_SYSTEM_PROMPT = `You are an API-connected soldier. You have access to named credentials listed in your context — use {{SECRET_NAME}} placeholders in your request headers and they will be replaced with the actual values automatically.
+
+When given a task:
+1. First fetch the relevant API docs page using Jina Reader: GET https://r.jina.ai/<docs_page_url> — this returns clean markdown you can read
+2. Read the docs carefully — pay attention to required headers, query parameters, pagination, and filtering options
+3. Construct the request with proper headers, using {{SECRET_NAME}} placeholders for credentials
+4. Make the API call
+5. Parse the response and extract the relevant data
+6. If a call fails, read the error response carefully and adjust (wrong endpoint, missing params, auth format, etc.)
+7. Return a clear, structured summary of the results
+
+General best practices:
+- Always request the maximum page size the API allows (e.g. limit=100, page_size=100, per_page=100) to minimize round trips
+- If the response indicates more pages (has_more, next_cursor, next_page, etc.), keep fetching until you have all results
+- Prefer specific filters over broad queries when the API supports them
+- Include required API version headers when documented (e.g. Notion-Version, Stripe-Version)
+- When listing resources, do not assume the first page is complete — always check pagination fields`;
 
 export const MAX_ALL_MENTIONS = 5;

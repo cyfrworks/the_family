@@ -3,7 +3,6 @@ use serde_json::{json, Value};
 use crate::bindings::cyfr::formula::invoke;
 use crate::helpers;
 
-const MAX_TOOL_RESULT_CHARS: usize = 32000;
 
 // ---------------------------------------------------------------------------
 // Hardcoded tool definitions (replaces MCP discovery)
@@ -169,12 +168,11 @@ fn caporegime_tools() -> Vec<Value> {
 // Build tool definitions for provider
 // ---------------------------------------------------------------------------
 
-pub fn build_tool_definitions(catalyst_ref: &str) -> Value {
-    let tools = caporegime_tools();
-    format_tools_for_provider(&tools, catalyst_ref)
+pub fn build_tool_definitions() -> Vec<Value> {
+    caporegime_tools()
 }
 
-fn format_tools_for_provider(tools: &[Value], catalyst_ref: &str) -> Value {
+pub fn format_tools_for_provider(tools: &[Value], catalyst_ref: &str) -> Value {
     let lower = catalyst_ref.to_lowercase();
 
     if lower.contains("openai") || lower.contains("grok") || lower.contains("openrouter") {
@@ -462,7 +460,7 @@ fn dispatch_delegate(args: &Value, crew_info: &Value, access_token: &str) -> Str
         None => return json!({"error": format!("Soldier '{}' not found in your crew", soldier_name)}).to_string(),
     };
 
-    match helpers::invoke_consul(soldier, task, access_token) {
+    match helpers::invoke_soldier(soldier, task, access_token) {
         Ok(content) => json!({"result": content}).to_string(),
         Err(e) => json!({"error": format!("Delegation failed: {}", e)}).to_string(),
     }
@@ -484,7 +482,7 @@ fn dispatch_search_bookkeeper(args: &Value, crew_info: &Value, owner_id: &str, a
     let bk_id = bookkeeper.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
     match helpers::invoke_bookkeeper(bk_id, owner_id, "search", json!({"query": query}), access_token) {
-        Ok(data) => truncate_result(&serde_json::to_string_pretty(&data).unwrap_or_default()),
+        Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
         Err(e) => json!({"error": format!("Search failed: {}", e)}).to_string(),
     }
 }
@@ -508,7 +506,7 @@ fn dispatch_list_bookkeeper_entries(args: &Value, crew_info: &Value, owner_id: &
     }
 
     match helpers::invoke_bookkeeper(bk_id, owner_id, "list_entries", extra, access_token) {
-        Ok(data) => truncate_result(&serde_json::to_string_pretty(&data).unwrap_or_default()),
+        Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
         Err(e) => json!({"error": format!("List failed: {}", e)}).to_string(),
     }
 }
@@ -562,7 +560,7 @@ fn dispatch_read_journal(member_id: &str, args: &Value, access_token: &str) -> S
             "access_token": access_token
         }),
     ) {
-        Ok(data) => truncate_result(&serde_json::to_string_pretty(&data).unwrap_or_default()),
+        Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_default(),
         Err(e) => json!({"error": format!("Journal read failed: {}", e)}).to_string(),
     }
 }
@@ -607,7 +605,7 @@ fn create_cyfr_schedule(job_id: &str, cron_expression: &str, member_id: &str, ow
         "args": {
             "name": format!("job-{}", job_id),
             "cron_expression": cron_expression,
-            "reference": "formula:local.caporegime:0.1.0",
+            "reference": "formula:local.caporegime",
             "input": {
                 "action": "execute_job",
                 "job_id": job_id,
@@ -654,7 +652,7 @@ fn dispatch_run_job(args: &Value, member_id: &str, owner_id: &str, access_token:
         "tool": "execution",
         "action": "run",
         "args": {
-            "reference": "formula:local.caporegime:0.1.0",
+            "reference": "formula:local.caporegime",
             "input": {
                 "action": "execute_job",
                 "job_id": job_id,
@@ -680,7 +678,7 @@ fn dispatch_run_job(args: &Value, member_id: &str, owner_id: &str, access_token:
         _ => raw_result,
     };
 
-    truncate_result(&serde_json::to_string_pretty(&result.get("data").unwrap_or(&result)).unwrap_or_default())
+    serde_json::to_string_pretty(&result.get("data").unwrap_or(&result)).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -704,32 +702,54 @@ pub fn execute_tools_parallel(
         .collect()
 }
 
-fn truncate_result(s: &str) -> String {
-    if s.len() <= MAX_TOOL_RESULT_CHARS {
-        s.to_string()
-    } else {
-        let truncated = &s[..MAX_TOOL_RESULT_CHARS];
-        format!("{}\n\n[... truncated, showing first {} chars of {} total]", truncated, MAX_TOOL_RESULT_CHARS, s.len())
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Build provider-specific request WITH tools (for agentic loop)
 // ---------------------------------------------------------------------------
 
+/// Build a provider-specific LLM request with tools.
+/// `custom_tools` are raw tool definitions (with `input_schema`).
+/// When `include_web_search` is true, native web search tools are added per provider.
 pub fn build_provider_request_with_tools(
     catalyst_ref: &str,
     model: &str,
     messages: &[Value],
     system: &str,
-    tools: &Value,
+    custom_tools: &[Value],
     max_tokens: u64,
+) -> Value {
+    build_provider_request_impl(catalyst_ref, model, messages, system, custom_tools, max_tokens, false)
+}
+
+/// Same as `build_provider_request_with_tools` but also injects native web search tools.
+pub fn build_soldier_request(
+    catalyst_ref: &str,
+    model: &str,
+    messages: &[Value],
+    system: &str,
+    custom_tools: &[Value],
+    max_tokens: u64,
+) -> Value {
+    build_provider_request_impl(catalyst_ref, model, messages, system, custom_tools, max_tokens, true)
+}
+
+fn build_provider_request_impl(
+    catalyst_ref: &str,
+    model: &str,
+    messages: &[Value],
+    system: &str,
+    custom_tools: &[Value],
+    max_tokens: u64,
+    include_web_search: bool,
 ) -> Value {
     let lower = catalyst_ref.to_lowercase();
 
     if lower.contains("claude") {
-        let mut all_tools: Vec<Value> = tools.as_array().cloned().unwrap_or_default();
-        all_tools.push(json!({"type": "web_search_20250305", "name": "web_search"}));
+        let mut all_tools: Vec<Value> = custom_tools.to_vec();
+        if include_web_search {
+            all_tools.push(json!({"type": "web_search_20250305", "name": "web_search", "max_uses": 3}));
+            all_tools.push(json!({"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5, "citations": {"enabled": true}}));
+        }
         json!({
             "operation": "messages.create",
             "params": {
@@ -740,19 +760,61 @@ pub fn build_provider_request_with_tools(
                 "tools": all_tools
             }
         })
-    } else if lower.contains("openai") || lower.contains("grok") || lower.contains("openrouter") {
+    } else if lower.contains("grok") {
         let mut all_messages = vec![json!({"role": "system", "content": system})];
         all_messages.extend_from_slice(messages);
-        let mut all_tools: Vec<Value> = tools.as_array().cloned().unwrap_or_default();
-        if lower.contains("openai") && !lower.contains("openrouter") {
-            all_tools.push(json!({"type": "web_search_preview"}));
+        let mut all_tools: Vec<Value> = format_tools_for_provider(custom_tools, catalyst_ref)
+            .as_array().cloned().unwrap_or_default();
+        if include_web_search {
+            all_tools.push(json!({"type": "web_search"}));
+            all_tools.push(json!({"type": "x_search"}));
+        }
+        json!({
+            "operation": "responses.create",
+            "params": {
+                "model": model,
+                "instructions": system,
+                "input": all_messages,
+                "tools": all_tools,
+                "max_output_tokens": max_tokens
+            }
+        })
+    } else if lower.contains("openrouter") {
+        let mut all_messages = vec![json!({"role": "system", "content": system})];
+        all_messages.extend_from_slice(messages);
+        let formatted = format_tools_for_provider(custom_tools, catalyst_ref);
+        let all_tools: Vec<Value> = formatted.as_array().cloned().unwrap_or_default();
+        let mut params = json!({
+            "model": model,
+            "messages": all_messages,
+            "max_tokens": max_tokens
+        });
+        if include_web_search {
+            params["plugins"] = json!([{"id": "web"}]);
+        }
+        if !all_tools.is_empty() {
+            params["tools"] = json!(all_tools);
         }
         json!({
             "operation": "chat.completions.create",
+            "params": params
+        })
+    } else if lower.contains("openai") {
+        let mut all_messages = vec![json!({"role": "system", "content": system})];
+        all_messages.extend_from_slice(messages);
+        let mut all_tools: Vec<Value> = format_tools_for_provider(custom_tools, catalyst_ref)
+            .as_array().cloned().unwrap_or_default();
+        if include_web_search {
+            all_tools.push(json!({"type": "web_search_preview"}));
+        }
+        json!({
+            "operation": "responses.create",
             "params": {
                 "model": model,
-                "messages": all_messages,
-                "tools": all_tools
+                "instructions": system,
+                "input": all_messages,
+                "tools": all_tools,
+                "max_output_tokens": max_tokens
             }
         })
     } else if lower.contains("gemini") {
@@ -774,23 +836,50 @@ pub fn build_provider_request_with_tools(
             })
             .collect();
 
+        let mut tools_array: Vec<Value> = Vec::new();
+        // Gemini doesn't allow native search + custom function calling together
+        if include_web_search && custom_tools.is_empty() {
+            tools_array.push(json!({"google_search": {}}));
+            tools_array.push(json!({"url_context": {}}));
+        }
+
+        // Add custom tools as Gemini function declarations
+        if !custom_tools.is_empty() {
+            let declarations: Vec<Value> = custom_tools
+                .iter()
+                .map(|t| {
+                    let mut schema = t["input_schema"].clone();
+                    // Gemini doesn't support additionalProperties — strip it
+                    if let Some(obj) = schema.as_object_mut() {
+                        obj.remove("additionalProperties");
+                    }
+                    json!({
+                        "name": t["name"],
+                        "description": t["description"],
+                        "parameters": schema
+                    })
+                })
+                .collect();
+            tools_array.push(json!({"functionDeclarations": declarations}));
+        }
+
         let mut params = json!({
             "model": model,
             "contents": contents,
             "systemInstruction": {"parts": [{"text": system}]},
+            "generationConfig": {"maxOutputTokens": max_tokens},
         });
 
-        if let Some(arr) = tools.as_array() {
-            if !arr.is_empty() {
-                params["tools"] = tools.clone();
-            }
+        if !tools_array.is_empty() {
+            params["tools"] = json!(tools_array);
         }
 
         json!({
             "operation": "content.generate",
-            "params": params,
+            "params": params
         })
     } else {
+        let formatted = format_tools_for_provider(custom_tools, catalyst_ref);
         json!({
             "operation": "chat.create",
             "params": {
@@ -798,7 +887,7 @@ pub fn build_provider_request_with_tools(
                 "system": system,
                 "messages": messages,
                 "max_tokens": max_tokens,
-                "tools": tools
+                "tools": formatted
             }
         })
     }

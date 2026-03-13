@@ -55,6 +55,7 @@ fn handle_request(input: &str) -> Result<String, String> {
     match action {
         "respond" => handle_respond(&parsed),
         "execute_job" => handle_execute_job(&parsed),
+        "invoke_soldier" => handle_invoke_soldier(&parsed),
         _ => Err(format!("Unknown action: {action}")),
     }
 }
@@ -138,8 +139,8 @@ fn handle_respond(parsed: &Value) -> Result<String, String> {
     // 3. Build enriched system prompt
     let enriched_system = build_enriched_system(system, &crew_info, member_name);
 
-    // 4. Build hardcoded tool definitions
-    let tools_for_llm = tools::build_tool_definitions(catalyst_ref);
+    // 4. Build tool definitions (raw, provider-formatting happens in request builder)
+    let tools_for_llm = tools::build_tool_definitions();
 
     // 5. Run agentic loop
     let loop_result = run_agentic_loop(
@@ -260,7 +261,7 @@ fn run_agentic_loop(
     model: &str,
     system: &str,
     initial_conversation: &[Value],
-    tools_for_llm: &Value,
+    tools_for_llm: &[Value],
     max_turns: usize,
     sit_down_id: &str,
     member_id: &str,
@@ -381,6 +382,31 @@ fn run_agentic_loop(
             "output_tokens": total_output_tokens
         }
     }))
+}
+
+// ===========================================================================
+// Mode 3: invoke_soldier — self-invoke target for spawned soldier delegation
+// ===========================================================================
+
+fn handle_invoke_soldier(parsed: &Value) -> Result<String, String> {
+    let soldier = parsed
+        .get("soldier")
+        .ok_or("Missing required 'soldier'")?;
+    let task = parsed
+        .get("task")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing required 'task'")?;
+    let access_token = parsed
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let content = helpers::invoke_soldier(soldier, task, access_token)?;
+
+    Ok(json!({
+        "content": content
+    })
+    .to_string())
 }
 
 // ===========================================================================
@@ -640,7 +666,7 @@ fn execute_for_each_step(
     let results = if parallel && prompts.len() > 1 {
         // Parallel: spawn all, await all
         let task_ids: Vec<String> = prompts.iter().map(|(_, prompt)| {
-            helpers::spawn_consul(soldier, prompt, access_token)
+            helpers::spawn_soldier(soldier, prompt, access_token)
         }).collect();
 
         let awaited = helpers::await_all_tasks(&task_ids);
@@ -663,7 +689,7 @@ fn execute_for_each_step(
     } else {
         // Sequential: one at a time
         prompts.iter().map(|(item, prompt)| {
-            let output = helpers::invoke_consul(soldier, prompt, access_token)
+            let output = helpers::invoke_soldier(soldier, prompt, access_token)
                 .unwrap_or_else(|e| format!("Error: {e}"));
             let item_label = item.get("title").and_then(|v| v.as_str())
                 .or_else(|| item.as_str())
@@ -701,7 +727,7 @@ fn execute_delegate_step(
     // Resolve template variables (no item context for delegate)
     let prompt = resolve_template_no_item(prompt_template, step_results);
 
-    let output = helpers::invoke_consul(soldier, &prompt, access_token)?;
+    let output = helpers::invoke_soldier(soldier, &prompt, access_token)?;
 
     tool_calls_log.push(json!({
         "step_id": step_id,
@@ -826,7 +852,7 @@ fn fetch_crew_info(caporegime_id: &str, owner_id: &str, access_token: &str) -> V
         "db.select",
         json!({
             "table": "members",
-            "select": "id,name,system_prompt,catalog_model:model_catalog(provider,model,alias)",
+            "select": "id,name,system_prompt,soldier_type,soldier_config,catalog_model:model_catalog(provider,model,alias)",
             "filters": [
                 { "column": "caporegime_id", "op": "eq", "value": caporegime_id },
                 { "column": "member_type", "op": "eq", "value": "soldier" }
@@ -904,7 +930,9 @@ fn build_enriched_system(base_system: &str, crew_info: &Value, member_name: &str
                 .and_then(|cm| cm.get("alias"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown model");
-            enriched.push_str(&format!("- {name} ({model_info}): {}\n", truncate(prompt, 100)));
+            let soldier_type = soldier.get("soldier_type").and_then(|v| v.as_str()).unwrap_or("default");
+            let type_tag = if soldier_type == "external" { " [API-connected]" } else { "" };
+            enriched.push_str(&format!("- {name} ({model_info}){type_tag}: {}\n", truncate(prompt, 100)));
         }
         enriched.push('\n');
     }

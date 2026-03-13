@@ -105,15 +105,26 @@ export default function MembersScreen() {
     member_type?: MemberType;
     caporegime_id?: string;
     avatar_url?: string;
+    soldier_type?: string;
+    soldier_config?: Record<string, unknown>;
   }) {
     try {
       if (editing) {
-        await updateMember(editing.id, {
+        const updates: Record<string, unknown> = {
           name: data.name,
           catalog_model_id: data.catalog_model_id,
           system_prompt: data.system_prompt,
           avatar_url: data.avatar_url,
-        });
+        };
+        if (editing.member_type === 'soldier') {
+          updates.soldier_type = data.soldier_type;
+          updates.soldier_config = data.soldier_config;
+        }
+        await updateMember(editing.id, updates);
+        // Reload crew if editing a soldier
+        if (editing.caporegime_id) {
+          loadCrew(editing.caporegime_id);
+        }
         toast.success(`${data.name} has new orders.`);
       } else if (data.member_type === 'informant') {
         // Route informant creation through the informant hook

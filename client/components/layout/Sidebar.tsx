@@ -17,6 +17,7 @@ import {
   Info,
   Crown,
   Activity,
+  Copy,
 } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../common/UserAvatar';
@@ -28,6 +29,7 @@ import { CreateSitdownModal } from '../sitdown/CreateSitdownModal';
 import { CreateCommissionSitDownModal } from '../commission/CreateCommissionSitDownModal';
 import { InviteToCommissionModal } from '../commission/InviteToCommissionModal';
 import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
+import * as Clipboard from 'expo-clipboard';
 import { toast } from '../../lib/toast';
 import { confirmAlert } from '../../lib/alert';
 import { Dropdown } from '../ui/Dropdown';
@@ -212,6 +214,18 @@ export function Sidebar(props: DrawerContentComponentProps) {
             </Pressable>
           }
         >
+          <Pressable
+            onPress={async () => {
+              setMenuOpen(null);
+              await Clipboard.setStringAsync(sd.id);
+              toast.success('Sit-down ID copied.');
+            }}
+            className="flex-row items-center gap-2 px-3 py-1.5"
+            style={{ width: 144 }}
+          >
+            <Copy size={14} color="#a8a29e" />
+            <Text className="text-sm text-stone-300">Copy ID</Text>
+          </Pressable>
           <Pressable
             onPress={() => {
               setMenuOpen(null);

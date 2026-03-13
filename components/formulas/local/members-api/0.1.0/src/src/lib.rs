@@ -284,6 +284,21 @@ fn create_member(access_token: &str, member: &Value) -> Result<String, String> {
         body["avatar_url"] = json!(avatar_url);
     }
 
+    // Soldier-specific fields
+    if member_type == "soldier" {
+        if let Some(soldier_type) = member.get("soldier_type").and_then(|v| v.as_str()) {
+            match soldier_type {
+                "default" | "external" => {
+                    body["soldier_type"] = json!(soldier_type);
+                }
+                _ => return Err(format!("Invalid soldier_type: {soldier_type}. Must be 'default' or 'external'")),
+            }
+        }
+        if let Some(soldier_config) = member.get("soldier_config") {
+            body["soldier_config"] = soldier_config.clone();
+        }
+    }
+
     let inserted = supabase_call(
         "db.insert",
         json!({
@@ -311,11 +326,19 @@ fn update_member(access_token: &str, member_id: &str, updates: &Value) -> Result
 
     // Build the update body from allowed fields only
     let mut body = json!({});
-    let allowed_fields = ["name", "catalog_model_id", "system_prompt", "avatar_url"];
+    let allowed_fields = ["name", "catalog_model_id", "system_prompt", "avatar_url", "soldier_type", "soldier_config"];
 
     for field in &allowed_fields {
         if let Some(val) = updates.get(*field) {
             body[*field] = val.clone();
+        }
+    }
+
+    // Validate soldier_type if provided
+    if let Some(soldier_type) = updates.get("soldier_type").and_then(|v| v.as_str()) {
+        match soldier_type {
+            "default" | "external" => {}
+            _ => return Err(format!("Invalid soldier_type: {soldier_type}. Must be 'default' or 'external'")),
         }
     }
 

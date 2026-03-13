@@ -28,7 +28,21 @@ export function MemberCard({ member, onEdit, onDelete, compact }: MemberCardProp
             <Text className="text-[10px] font-bold text-white">!</Text>
           </View>
         )}
-        <Text className="text-sm text-stone-200">{member.name}</Text>
+        <Text className="flex-1 text-sm text-stone-200">{member.name}</Text>
+        {(onEdit || onDelete) && (
+          <View className="flex-row items-center gap-0.5">
+            {onEdit && (
+              <Pressable onPress={onEdit} hitSlop={6} className="rounded p-1.5">
+                <Pencil size={13} color="#78716c" />
+              </Pressable>
+            )}
+            {onDelete && (
+              <Pressable onPress={onDelete} hitSlop={6} className="rounded p-1.5">
+                <Trash2 size={13} color="#78716c" />
+              </Pressable>
+            )}
+          </View>
+        )}
       </View>
     );
   }

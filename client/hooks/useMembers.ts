@@ -45,6 +45,8 @@ export function useMembers(memberType?: MemberType) {
     avatar_url?: string;
     member_type?: MemberType;
     caporegime_id?: string;
+    soldier_type?: string;
+    soldier_config?: Record<string, unknown>;
   }) {
     const accessToken = getAccessToken();
     if (!accessToken) throw new Error('Not authenticated');
@@ -66,7 +68,7 @@ export function useMembers(memberType?: MemberType) {
     return created;
   }
 
-  async function updateMember(id: string, updates: Partial<Pick<Member, 'name' | 'catalog_model_id' | 'system_prompt' | 'avatar_url'>>) {
+  async function updateMember(id: string, updates: Partial<Pick<Member, 'name' | 'catalog_model_id' | 'system_prompt' | 'avatar_url' | 'soldier_type' | 'soldier_config'>>) {
     const accessToken = getAccessToken();
     if (!accessToken) throw new Error('Not authenticated');
 

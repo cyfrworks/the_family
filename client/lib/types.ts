@@ -22,6 +22,18 @@ export interface Profile {
 
 export type MemberType = 'consul' | 'informant' | 'caporegime' | 'soldier' | 'bookkeeper';
 
+export type SoldierType = 'default' | 'external';
+
+export interface SoldierSecret {
+  name: string;
+  value: string;
+}
+
+export interface SoldierConfig {
+  docs_url?: string;
+  secrets?: SoldierSecret[];
+}
+
 export interface Member {
   id: string;
   owner_id: string;
@@ -35,6 +47,8 @@ export interface Member {
   token_prefix?: string;
   last_used_at?: string | null;
   catalog_model?: CatalogModel;
+  soldier_type?: SoldierType;
+  soldier_config?: SoldierConfig;
 }
 
 export interface Operation {

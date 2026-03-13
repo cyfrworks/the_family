@@ -2,7 +2,10 @@ use serde_json::{json, Value};
 
 use crate::bindings::cyfr::formula::invoke;
 
-pub const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
+pub const SUPABASE_REF: &str = "catalyst:local.supabase";
+pub const WEB_CATALYST_REF: &str = "catalyst:moonmoon69.web";
+
+const MAX_EXTERNAL_TURNS: usize = 10;
 
 fn supabase_call_once(operation: &str, params: Value) -> Result<Value, String> {
     let request = json!({
@@ -199,70 +202,284 @@ pub fn insert_ai_message(
 }
 
 // ---------------------------------------------------------------------------
-// Consul invocation (soldier delegation)
+// Soldier invocation (direct, no consul hop)
 // ---------------------------------------------------------------------------
 
-/// Invoke consul formula for a single soldier delegation.
-/// Returns the text response from the soldier.
-pub fn invoke_consul(
+/// Build a single-turn LLM request with native web search tools (no caporegime tools).
+/// Replicates consul's build_provider_request for soldier delegation.
+/// Invoke a soldier directly (no consul hop).
+/// Dispatches based on soldier_type: "default" or "external".
+/// Both paths use `build_soldier_request` which adds native web search tools.
+/// Default gets web search only, external additionally gets `http_request`.
+pub fn invoke_soldier(
     soldier: &Value,
     task: &str,
     access_token: &str,
+) -> Result<String, String> {
+    let soldier_type = soldier.get("soldier_type").and_then(|v| v.as_str()).unwrap_or("default");
+
+    match soldier_type {
+        "external" => invoke_external_soldier(soldier, task, access_token),
+        _ => invoke_default_soldier(soldier, task, access_token),
+    }
+}
+
+/// Default soldier: single-turn LLM call with native web search tools only.
+fn invoke_default_soldier(
+    soldier: &Value,
+    task: &str,
+    _access_token: &str,
 ) -> Result<String, String> {
     let catalog_model = soldier.get("catalog_model").cloned().unwrap_or(Value::Null);
     let provider = catalog_model.get("provider").and_then(|v| v.as_str()).unwrap_or("claude");
     let model = catalog_model.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
     let system_prompt = soldier.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
 
-    let catalyst_ref = format!("catalyst:moonmoon69.{}:1.0.0", provider);
+    let catalyst_ref = format!("catalyst:moonmoon69.{}", provider);
+    let messages = vec![json!({"role": "user", "content": task})];
 
-    let request = json!({
-        "tool": "execution",
-        "action": "run",
-        "args": {
-            "reference": "formula:local.consul:0.1.0",
-            "input": {
-                "catalyst_ref": catalyst_ref,
-                "model": model,
-                "system": system_prompt,
-                "conversation": [{ "role": "user", "content": task }],
-                "access_token": access_token
-            },
-            "type": "formula"
-        }
-    });
+    // No custom tools — just native web search from build_provider_request_with_tools
+    let catalyst_input = crate::tools::build_soldier_request(
+        &catalyst_ref, model, &messages, system_prompt, &[], 4096,
+    );
+    let data = invoke_catalyst(&catalyst_ref, &catalyst_input)?;
+    let content = extract_content(&data, &catalyst_ref);
 
-    let response_str = invoke::call(&request.to_string());
-    let response: Value = serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse consul response: {e}"))?;
+    if content.is_empty() {
+        return Err("Empty response from soldier".to_string());
+    }
 
-    unwrap_formula_response(&response)
+    Ok(content)
 }
 
-/// Spawn a consul invocation (for parallel delegation).
-/// Returns the task_id for await_all.
-pub fn spawn_consul(
+/// External soldier: mini agentic loop with `http_request` custom tool + native web search.
+/// On tool call, caporegime executes the web catalyst fetch, injecting auth from soldier_config.
+fn invoke_external_soldier(
     soldier: &Value,
     task: &str,
-    access_token: &str,
-) -> String {
+    _access_token: &str,
+) -> Result<String, String> {
     let catalog_model = soldier.get("catalog_model").cloned().unwrap_or(Value::Null);
     let provider = catalog_model.get("provider").and_then(|v| v.as_str()).unwrap_or("claude");
     let model = catalog_model.get("model").and_then(|v| v.as_str()).unwrap_or("claude-sonnet-4-6");
     let system_prompt = soldier.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let soldier_config = soldier.get("soldier_config").cloned().unwrap_or(json!({}));
 
-    let catalyst_ref = format!("catalyst:moonmoon69.{}:1.0.0", provider);
+    let catalyst_ref = format!("catalyst:moonmoon69.{}", provider);
+    let custom_tools = vec![build_web_tool_definition()];
 
+    // Build enriched system prompt with docs and secret names (not values!)
+    let mut enriched_system = system_prompt.to_string();
+
+    // Tell the LLM which secrets are available (names only — values are injected at execution time)
+    if let Some(secrets) = soldier_config.get("secrets").and_then(|v| v.as_array()) {
+        let names: Vec<&str> = secrets.iter().filter_map(|s| {
+            s.get("name").and_then(|v| v.as_str()).filter(|n| !n.is_empty())
+        }).collect();
+        if !names.is_empty() {
+            enriched_system.push_str("\n\n---\nAVAILABLE CREDENTIALS:\n");
+            enriched_system.push_str("Use {{SECRET_NAME}} as a placeholder in header values. The actual secret is injected automatically at request time.\n");
+            for name in &names {
+                enriched_system.push_str(&format!("- {{{{{}}}}}\n", name));
+            }
+            enriched_system.push_str("\nExample: to use a secret called \"API_KEY\" as a Bearer token, set the header:\n");
+            enriched_system.push_str("  Authorization: Bearer {{API_KEY}}\n");
+        }
+    }
+
+    // Tell the LLM where docs are and how to fetch them via Jina Reader
+    if let Some(docs_url) = soldier_config.get("docs_url").and_then(|v| v.as_str()) {
+        if !docs_url.is_empty() {
+            enriched_system.push_str("\n\n---\nAPI DOCUMENTATION:\n");
+            enriched_system.push_str(&format!("Reference docs: {}\n", docs_url));
+            enriched_system.push_str("To read API docs, use http_request to fetch: https://r.jina.ai/<docs_page_url>\n");
+            enriched_system.push_str("Jina Reader converts any webpage to clean markdown. Fetch the specific endpoint docs you need before making API calls.\n");
+        }
+    }
+
+    let mut messages: Vec<Value> = vec![json!({"role": "user", "content": task})];
+    let mut all_text = String::new();
+
+    for _turn in 0..MAX_EXTERNAL_TURNS {
+        // No native web search for external soldiers — http_request is their only tool
+        let catalyst_input = crate::tools::build_provider_request_with_tools(
+            &catalyst_ref, model, &messages, &enriched_system, &custom_tools, 4096,
+        );
+
+        let data = invoke_catalyst(&catalyst_ref, &catalyst_input)?;
+
+        let turn_text = crate::tools::extract_text(&data, &catalyst_ref);
+        if !turn_text.is_empty() {
+            all_text.push_str(&turn_text);
+        }
+
+        if !crate::tools::has_tool_calls(&data, &catalyst_ref) {
+            break;
+        }
+
+        let assistant_msg = crate::tools::build_assistant_message(&data, &catalyst_ref);
+        messages.push(assistant_msg);
+
+        let tool_calls = crate::tools::extract_tool_calls(&data, &catalyst_ref);
+        let mut results: Vec<(String, String, String)> = Vec::new();
+
+        for tc in &tool_calls {
+            if tc.name == "http_request" {
+                let result = execute_web_tool(&tc.arguments, &soldier_config);
+                results.push((tc.id.clone(), tc.name.clone(), result));
+            } else {
+                results.push((tc.id.clone(), tc.name.clone(), json!({"error": "Unknown tool"}).to_string()));
+            }
+        }
+
+        let tool_results_msg = crate::tools::build_tool_results_message(&results, &catalyst_ref);
+        let lower = catalyst_ref.to_lowercase();
+        if lower.contains("openai") || lower.contains("grok") || lower.contains("openrouter") {
+            if let Some(msgs) = tool_results_msg.as_array() {
+                for msg in msgs {
+                    messages.push(msg.clone());
+                }
+            } else {
+                messages.push(tool_results_msg);
+            }
+        } else {
+            messages.push(tool_results_msg);
+        }
+    }
+
+    if all_text.is_empty() {
+        return Err("Empty response from external soldier".to_string());
+    }
+
+    Ok(all_text)
+}
+
+
+/// Build JSON schema tool definition for `http_request` (used by external soldiers).
+/// Named `http_request` to avoid conflicts with provider-native web tools.
+fn build_web_tool_definition() -> Value {
+    json!({
+        "name": "http_request",
+        "description": "Make an HTTP request to an external API. Use {{SECRET_NAME}} placeholders in headers for credentials — they are replaced with actual values automatically. Returns the response body.",
+        "input_schema": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The full URL to request"
+                },
+                "method": {
+                    "type": "string",
+                    "description": "HTTP method. Defaults to GET.",
+                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+                },
+                "headers": {
+                    "type": "string",
+                    "description": "HTTP headers as a JSON string. Use {{SECRET_NAME}} for credentials, e.g. {\"Authorization\": \"Bearer {{API_KEY}}\", \"Content-Type\": \"application/json\"}"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body (for POST/PUT/PATCH)"
+                }
+            }
+        }
+    })
+}
+
+/// Execute the http_request tool via the web catalyst.
+/// The LLM uses {{SECRET_NAME}} placeholders in headers — we replace them with actual values.
+fn execute_web_tool(args: &Value, soldier_config: &Value) -> String {
+    let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
+
+    if url.is_empty() {
+        return json!({"error": "Missing required 'url'"}).to_string();
+    }
+
+    // Build a lookup map from secret names to values
+    let mut secret_map: Vec<(String, String)> = Vec::new();
+    if let Some(secrets) = soldier_config.get("secrets").and_then(|v| v.as_array()) {
+        for secret in secrets {
+            if let (Some(name), Some(value)) = (
+                secret.get("name").and_then(|v| v.as_str()),
+                secret.get("value").and_then(|v| v.as_str()),
+            ) {
+                if !name.is_empty() {
+                    secret_map.push((name.to_string(), value.to_string()));
+                }
+            }
+        }
+    }
+
+    // Build headers — LLM sends them as a JSON string, parse and replace {{SECRET}} placeholders
+    let mut headers = json!({});
+    if let Some(header_str) = args.get("headers").and_then(|v| v.as_str()) {
+        // Replace placeholders in the raw header string before parsing
+        let mut resolved = header_str.to_string();
+        for (name, value) in &secret_map {
+            let placeholder = format!("{{{{{}}}}}", name);
+            resolved = resolved.replace(&placeholder, value);
+        }
+        if let Ok(parsed) = serde_json::from_str::<Value>(&resolved) {
+            if let Some(obj) = parsed.as_object() {
+                for (k, v) in obj {
+                    headers[k] = v.clone();
+                }
+            }
+        }
+    }
+
+    // Also replace placeholders in body if present
+    let body = args.get("body").and_then(|v| v.as_str()).map(|b| {
+        let mut resolved = b.to_string();
+        for (name, value) in &secret_map {
+            let placeholder = format!("{{{{{}}}}}", name);
+            resolved = resolved.replace(&placeholder, value);
+        }
+        resolved
+    });
+
+    let mut fetch_input = json!({
+        "operation": "fetch",
+        "params": {
+            "url": url,
+            "method": method
+        }
+    });
+
+    if let Some(obj) = headers.as_object() {
+        if !obj.is_empty() {
+            fetch_input["params"]["headers"] = headers;
+        }
+    }
+
+    if let Some(body) = body {
+        fetch_input["params"]["body"] = json!(body);
+    }
+
+    match invoke_catalyst(WEB_CATALYST_REF, &fetch_input) {
+        Ok(data) => serde_json::to_string(&data).unwrap_or_default(),
+        Err(e) => json!({"error": format!("Web fetch failed: {}", e)}).to_string(),
+    }
+}
+
+/// Spawn a soldier invocation (for parallel delegation via self-invoke).
+/// Returns the task_id for await_all.
+pub fn spawn_soldier(
+    soldier: &Value,
+    task: &str,
+    access_token: &str,
+) -> String {
     let request = json!({
         "tool": "execution",
         "action": "run",
         "args": {
-            "reference": "formula:local.consul:0.1.0",
+            "reference": "formula:local.caporegime",
             "input": {
-                "catalyst_ref": catalyst_ref,
-                "model": model,
-                "system": system_prompt,
-                "conversation": [{ "role": "user", "content": task }],
+                "action": "invoke_soldier",
+                "soldier": soldier,
+                "task": task,
                 "access_token": access_token
             },
             "type": "formula"
@@ -275,7 +492,7 @@ pub fn spawn_consul(
 }
 
 /// Unwrap a formula invocation response to get the content text.
-fn unwrap_formula_response(response: &Value) -> Result<String, String> {
+pub fn unwrap_formula_response(response: &Value) -> Result<String, String> {
     if let Some(err) = response.get("error") {
         return Err(format!("Formula invoke error: {err}"));
     }
@@ -291,7 +508,6 @@ fn unwrap_formula_response(response: &Value) -> Result<String, String> {
         return Err(format!("Formula error: {}", err.get("message").and_then(|v| v.as_str()).unwrap_or(&err.to_string())));
     }
 
-    // For consul: response is {"content": "...", "usage": {...}}
     let data = result.get("data").unwrap_or(&result);
     if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
         return Ok(content.to_string());
@@ -372,7 +588,7 @@ pub fn invoke_bookkeeper(
         "tool": "execution",
         "action": "run",
         "args": {
-            "reference": "formula:local.bookkeeper:0.1.0",
+            "reference": "formula:local.bookkeeper",
             "input": input,
             "type": "formula"
         }

@@ -10,9 +10,9 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { X, ChevronDown, AlertTriangle } from 'lucide-react-native';
-import type { Provider, Member, MemberType } from '../../lib/types';
-import { PROVIDER_LABELS, MEMBER_TEMPLATES, CAPOREGIME_TEMPLATES, BOOKKEEPER_TEMPLATES, SOLDIER_TEMPLATES, MEMBER_TYPE_LABELS, MEMBER_TYPE_DESCRIPTIONS } from '../../config/constants';
+import { X, ChevronDown, AlertTriangle, Plus, Trash2 } from 'lucide-react-native';
+import type { Provider, Member, MemberType, SoldierType, SoldierConfig, SoldierSecret } from '../../lib/types';
+import { PROVIDER_LABELS, MEMBER_TEMPLATES, CAPOREGIME_TEMPLATES, BOOKKEEPER_TEMPLATES, SOLDIER_TEMPLATES, MEMBER_TYPE_LABELS, MEMBER_TYPE_DESCRIPTIONS, SOLDIER_TYPE_LABELS, SOLDIER_TYPE_DESCRIPTIONS, EXTERNAL_SOLDIER_SYSTEM_PROMPT } from '../../config/constants';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { Dropdown } from '../ui/Dropdown';
 import { EmojiPicker } from '../ui/EmojiPicker';
@@ -37,6 +37,8 @@ interface MemberEditorProps {
     member_type?: MemberType;
     caporegime_id?: string;
     avatar_url?: string;
+    soldier_type?: SoldierType;
+    soldier_config?: SoldierConfig;
   }) => Promise<void>;
   onClose: () => void;
   /** Pre-set member type (e.g. for soldier creation) */
@@ -65,9 +67,13 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
   const [catalogModelId, setCatalogModelId] = useState(member?.catalog_model_id ?? '');
   const [systemPrompt, setSystemPrompt] = useState(member?.system_prompt ?? '');
   const [saving, setSaving] = useState(false);
+  const [soldierType, setSoldierType] = useState<SoldierType>(member?.soldier_type ?? 'default');
+  const [docsUrl, setDocsUrl] = useState(member?.soldier_config?.docs_url ?? '');
+  const [secrets, setSecrets] = useState<SoldierSecret[]>(member?.soldier_config?.secrets ?? []);
 
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showSoldierTypePicker, setShowSoldierTypePicker] = useState(false);
 
   const providerModels = modelsByProvider[provider] ?? [];
 
@@ -96,6 +102,10 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
       setMemberType(
         (forceMemberType as CreatableMemberType) ?? (member?.member_type as CreatableMemberType) ?? 'consul'
       );
+      setSoldierType(member?.soldier_type ?? 'default');
+      setDocsUrl(member?.soldier_config?.docs_url ?? '');
+      setSecrets(member?.soldier_config?.secrets ?? []);
+      setShowSoldierTypePicker(false);
     }
     prevVisible.current = visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,6 +147,8 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
         member_type?: MemberType;
         caporegime_id?: string;
         avatar_url?: string;
+        soldier_type?: SoldierType;
+        soldier_config?: SoldierConfig;
       } = {
         name: name.trim(),
         system_prompt: systemPrompt,
@@ -151,6 +163,19 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
         data.member_type = forceMemberType ?? memberType;
         if (caporegimeId) {
           data.caporegime_id = caporegimeId;
+        }
+      }
+
+      // Include soldier-specific fields
+      const isSoldier = forceMemberType === 'soldier' || member?.member_type === 'soldier';
+      if (isSoldier) {
+        data.soldier_type = soldierType;
+        if (soldierType === 'external') {
+          const filteredSecrets = secrets.filter((s) => s.name.trim() && s.value.trim());
+          data.soldier_config = {
+            docs_url: docsUrl || undefined,
+            secrets: filteredSecrets.length > 0 ? filteredSecrets : undefined,
+          };
         }
       }
 
@@ -196,6 +221,7 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
               setShowModelPicker(false);
               setShowTemplatePicker(false);
               setShowRolePicker(false);
+              setShowSoldierTypePicker(false);
             }}
           >
             {/* Header */}
@@ -288,7 +314,8 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                           onPress={() => {
                             setName(t.name);
                             setAvatarEmoji(t.avatar_emoji);
-                            setSystemPrompt(t.system_prompt);
+                            setSystemPrompt(t.system_prompt === 'EXTERNAL_SOLDIER' ? EXTERNAL_SOLDIER_SYSTEM_PROMPT : t.system_prompt);
+                            if (t.slug === 'agente-esterno') setSoldierType('external');
                             setShowTemplatePicker(false);
                           }}
                           className="flex-row items-center gap-2.5 px-3 py-2.5"
@@ -301,6 +328,124 @@ export function MemberEditor({ visible, member, onSave, onClose, forceMemberType
                         </Pressable>
                       ))}
                     </Dropdown>
+                  </View>
+                )}
+
+                {/* Soldier Type (soldier creation/edit only) */}
+                {(forceMemberType === 'soldier' || member?.member_type === 'soldier') && (
+                  <View>
+                    <Text className="mb-1 text-sm font-medium text-stone-300">Soldier Type</Text>
+                    <Dropdown
+                      open={showSoldierTypePicker}
+                      onClose={() => setShowSoldierTypePicker(false)}
+                      trigger={
+                        <Pressable
+                          onPress={() => {
+                            setShowProviderPicker(false);
+                            setShowModelPicker(false);
+                            setShowTemplatePicker(false);
+                            setShowRolePicker(false);
+                            setShowSoldierTypePicker(!showSoldierTypePicker);
+                          }}
+                          className="flex-row items-center justify-between rounded-lg border border-stone-700 bg-stone-800 px-3 py-2.5"
+                        >
+                          <Text className="text-sm text-stone-100">{SOLDIER_TYPE_LABELS[soldierType]}</Text>
+                          <ChevronDown size={16} color="#a8a29e" />
+                        </Pressable>
+                      }
+                    >
+                      {(['default', 'external'] as SoldierType[]).map((st) => (
+                        <Pressable
+                          key={st}
+                          onPress={() => {
+                            setSoldierType(st);
+                            // Auto-fill system prompt when switching to external
+                            if (st === 'external' && !systemPrompt.trim()) {
+                              setSystemPrompt(EXTERNAL_SOLDIER_SYSTEM_PROMPT);
+                            }
+                            setShowSoldierTypePicker(false);
+                          }}
+                          className={`px-3 py-2.5 ${st === soldierType ? 'bg-stone-700' : ''}`}
+                        >
+                          <Text className="text-sm text-stone-100">{SOLDIER_TYPE_LABELS[st]}</Text>
+                          <Text className="text-xs text-stone-500">{SOLDIER_TYPE_DESCRIPTIONS[st]}</Text>
+                        </Pressable>
+                      ))}
+                    </Dropdown>
+                  </View>
+                )}
+
+                {/* External Soldier Config */}
+                {(forceMemberType === 'soldier' || member?.member_type === 'soldier') && soldierType === 'external' && (
+                  <View className="gap-3 rounded-lg border border-stone-700/50 bg-stone-800/30 p-3">
+                    <Text className="text-xs font-medium text-stone-400">API Configuration</Text>
+                    <View>
+                      <Text className="mb-1 text-xs text-stone-400">Documentation URL</Text>
+                      <TextInput
+                        value={docsUrl}
+                        onChangeText={setDocsUrl}
+                        placeholder="https://api.example.com/docs or OpenAPI spec URL"
+                        placeholderTextColor="#57534e"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        className="w-full rounded-lg border border-stone-700 bg-stone-800 px-3 py-2 text-sm text-stone-100"
+                      />
+                      <Text className="mt-1 text-xs text-stone-500">Fetched and included in the soldier's context</Text>
+                    </View>
+
+                    {/* Dynamic secrets */}
+                    <View className="gap-2">
+                      <View className="flex-row items-center justify-between">
+                        <Text className="text-xs text-stone-400">Secrets</Text>
+                        <Pressable
+                          onPress={() => setSecrets([...secrets, { name: '', value: '' }])}
+                          className="flex-row items-center gap-1 rounded px-2 py-1"
+                        >
+                          <Plus size={12} color="#a8a29e" />
+                          <Text className="text-xs text-stone-400">Add</Text>
+                        </Pressable>
+                      </View>
+                      {secrets.map((secret, i) => (
+                        <View key={i} className="flex-row items-center gap-2">
+                          <TextInput
+                            value={secret.name}
+                            onChangeText={(text) => {
+                              const updated = [...secrets];
+                              updated[i] = { ...updated[i], name: text };
+                              setSecrets(updated);
+                            }}
+                            placeholder="Name (e.g. API_KEY)"
+                            placeholderTextColor="#57534e"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            className="flex-1 rounded-lg border border-stone-700 bg-stone-800 px-2.5 py-1.5 text-xs text-stone-100"
+                          />
+                          <TextInput
+                            value={secret.value}
+                            onChangeText={(text) => {
+                              const updated = [...secrets];
+                              updated[i] = { ...updated[i], value: text };
+                              setSecrets(updated);
+                            }}
+                            placeholder="Value"
+                            placeholderTextColor="#57534e"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            secureTextEntry
+                            className="flex-1 rounded-lg border border-stone-700 bg-stone-800 px-2.5 py-1.5 text-xs text-stone-100"
+                          />
+                          <Pressable
+                            onPress={() => setSecrets(secrets.filter((_, j) => j !== i))}
+                            className="p-1"
+                          >
+                            <Trash2 size={14} color="#78716c" />
+                          </Pressable>
+                        </View>
+                      ))}
+                      {secrets.length === 0 && (
+                        <Text className="text-xs text-stone-600">No secrets configured. Secrets are injected as headers in API calls.</Text>
+                      )}
+                    </View>
                   </View>
                 )}
 

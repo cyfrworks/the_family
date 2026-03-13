@@ -18,8 +18,8 @@
       "properties": {
         "action": {
           "type": "string",
-          "description": "Mode: 'respond' (Brain — agentic loop, default) or 'execute_job' (Hands — mechanical step executor)",
-          "enum": ["respond", "execute_job"],
+          "description": "Mode: 'respond' (Brain — agentic loop, default), 'execute_job' (Hands — mechanical step executor), or 'invoke_soldier' (internal — spawned soldier delegation)",
+          "enum": ["respond", "execute_job", "invoke_soldier"],
           "default": "respond"
         },
         "catalyst_ref": {
@@ -81,6 +81,14 @@
         "owner_id": {
           "type": "string",
           "description": "Owner user ID (execute_job mode)"
+        },
+        "soldier": {
+          "type": "object",
+          "description": "Soldier member object (invoke_soldier mode)"
+        },
+        "task": {
+          "type": "string",
+          "description": "Task prompt for soldier (invoke_soldier mode)"
         }
       }
     },
@@ -89,7 +97,7 @@
       "properties": {
         "content": {
           "type": "string",
-          "description": "Final report text (respond mode)"
+          "description": "Final report text (respond mode) or soldier response (invoke_soldier mode)"
         },
         "message_id": {
           "type": "string",
@@ -120,14 +128,14 @@
   },
   "dependencies": {
     "static": [
-      { "ref": "catalyst:moonmoon69.supabase:0.3.1", "reason": "DB operations" },
-      { "ref": "catalyst:moonmoon69.claude:1.0.0", "reason": "Claude provider" },
-      { "ref": "catalyst:moonmoon69.openai:1.0.0", "reason": "OpenAI provider" },
-      { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
-      { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
-      { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" },
-      { "ref": "formula:local.consul:0.1.0", "reason": "Soldier delegation via consul" },
-      { "ref": "formula:local.bookkeeper:0.1.0", "reason": "Bookkeeper data operations" }
+      { "ref": "catalyst:local.supabase", "reason": "DB operations" },
+      { "ref": "catalyst:moonmoon69.claude", "reason": "Claude provider" },
+      { "ref": "catalyst:moonmoon69.openai", "reason": "OpenAI provider" },
+      { "ref": "catalyst:moonmoon69.gemini", "reason": "Gemini provider" },
+      { "ref": "catalyst:moonmoon69.grok", "reason": "Grok provider" },
+      { "ref": "catalyst:moonmoon69.openrouter", "reason": "OpenRouter provider" },
+      { "ref": "catalyst:moonmoon69.web", "reason": "Web catalyst for external soldier API calls" },
+      { "ref": "formula:local.bookkeeper", "reason": "Bookkeeper data operations" }
     ]
   },
   "examples": [
@@ -136,7 +144,7 @@
       "description": "Execute a multi-turn agentic operation with tool use and crew delegation",
       "input": {
         "action": "respond",
-        "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
+        "catalyst_ref": "catalyst:moonmoon69.claude",
         "model": "claude-sonnet-4-6",
         "system": "You handle operations for the Family.",
         "conversation": [{ "role": "user", "content": "Research the latest market trends and compile a report." }],
