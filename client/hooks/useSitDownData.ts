@@ -250,7 +250,12 @@ export function useSitDownData(sitDownId: string | undefined) {
           queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Channel degraded — refetch to recover any messages missed while disconnected
+          queryClient.invalidateQueries({ queryKey: ['sitDown', 'enter', sitDownId] });
+        }
+      });
 
     return () => {
       getSupabase().removeChannel(channel);

@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { auth, getAccessToken, setAccessToken, hydrateTokens, initAuthListener } from '../lib/supabase';
-import { clearRealtime, getSupabase } from '../lib/realtime';
+import { clearRealtime, setRealtimeAuth, getSupabase } from '../lib/realtime';
+import { useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getCurrentPushToken, unregisterPushToken } from '../lib/notifications';
+import { reconnectGlobalChannel } from '../lib/realtime-hub';
 import type { Profile, UserTier } from '../lib/types';
 
 const SETTINGS_API_REF = 'formula:local.settings-api:0.1.0';
@@ -35,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [aiDisclosureAccepted, setAiDisclosureAccepted] = useState(false);
   const initRef = useRef(false);
+  const queryClient = useQueryClient();
 
   const tier: UserTier = profile?.tier ?? 'associate';
   const isGodfather = tier === 'godfather';
@@ -92,7 +95,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearRealtime();
           setUser(null);
           setProfile(null);
+          return;
         }
+        // Push fresh token to realtime and force reconnect
+        const freshToken = getAccessToken();
+        if (freshToken) {
+          setRealtimeAuth(freshToken);
+          getSupabase().realtime.connect();
+          reconnectGlobalChannel(user.id, queryClient);
+        }
+        // Refetch key data to catch anything missed while backgrounded
+        queryClient.invalidateQueries({ queryKey: ['sitDowns'] });
+        queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
       } catch {
         // Supabase auto-refresh will handle it
       } finally {
@@ -101,7 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.remove();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, queryClient]);
 
   async function fetchProfile() {
     try {

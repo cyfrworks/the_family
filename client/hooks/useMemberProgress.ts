@@ -16,6 +16,7 @@ export interface ProgressEvent {
 }
 
 export interface MemberProgress {
+  executionId: string;
   memberId: string;
   memberName: string;
   statusText: string;
@@ -31,8 +32,17 @@ export interface MemberProgress {
 
 const STALE_TIMEOUT_MS = 120_000;
 
+// Key for the progress map: combines execution_id + member_id so that
+// concurrent requests for the same member get separate entries, AND
+// multiple members in the same execution (e.g. @all) also get separate entries.
+function progressKey(data: { execution_id?: string; member_id?: string }): string {
+  const execId = data.execution_id as string;
+  const memId = data.member_id as string;
+  return execId ? `${execId}:${memId}` : memId || '';
+}
+
 export function useMemberProgress(sitDownId: string | undefined) {
-  const [members, setMembers] = useState<Map<string, MemberProgress>>(new Map());
+  const [entries, setEntries] = useState<Map<string, MemberProgress>>(new Map());
 
   useEffect(() => {
     if (!sitDownId) return;
@@ -41,13 +51,14 @@ export function useMemberProgress(sitDownId: string | undefined) {
       const kind = data.kind as string;
       const memberId = data.member_id as string;
       const memberName = data.member_name as string;
+      const key = progressKey(data);
 
-      if (!memberId) return;
+      if (!memberId || !key) return;
 
       if (kind === 'message_inserted') {
         const messageId = data.message_id as string;
-        setMembers((prev) => {
-          const existing = prev.get(memberId);
+        setEntries((prev) => {
+          const existing = prev.get(key);
           if (!existing) return prev;
           const next = new Map(prev);
           const tokenStr = existing.totalTokens > 0
@@ -57,16 +68,16 @@ export function useMemberProgress(sitDownId: string | undefined) {
             ? `Tools: ${existing.toolsUsed.join(', ')}`
             : null;
           const parts = ['Finished', tokenStr, toolStr].filter(Boolean);
-          next.set(memberId, { ...existing, completed: true, statusText: parts.join(' | '), messageId });
+          next.set(key, { ...existing, completed: true, statusText: parts.join(' | '), messageId });
           return next;
         });
         // Keep entry alive so it can be shown inline with the message
         setTimeout(() => {
-          setMembers((prev) => {
-            const existing = prev.get(memberId);
+          setEntries((prev) => {
+            const existing = prev.get(key);
             if (!existing || !existing.completed) return prev;
             const next = new Map(prev);
-            next.delete(memberId);
+            next.delete(key);
             return next;
           });
         }, 60_000);
@@ -75,9 +86,10 @@ export function useMemberProgress(sitDownId: string | undefined) {
 
       const now = Date.now();
 
-      setMembers((prev) => {
+      setEntries((prev) => {
         const next = new Map(prev);
-        const existing = next.get(memberId) || {
+        const existing = next.get(key) || {
+          executionId: key,
           memberId,
           memberName,
           statusText: '',
@@ -140,25 +152,25 @@ export function useMemberProgress(sitDownId: string | undefined) {
           }];
         }
 
-        next.set(memberId, updated);
+        next.set(key, updated);
         return next;
       });
     });
 
     return () => {
       unsubscribe();
-      setMembers(new Map());
+      setEntries(new Map());
     };
   }, [sitDownId]);
 
   // Auto-cleanup stale entries (120s timeout)
-  const hasMembers = members.size > 0;
+  const hasEntries = entries.size > 0;
   useEffect(() => {
-    if (!hasMembers) return;
+    if (!hasEntries) return;
 
     const interval = setInterval(() => {
       const now = Date.now();
-      setMembers((prev) => {
+      setEntries((prev) => {
         let changed = false;
         const next = new Map(prev);
         for (const [id, m] of next) {
@@ -173,7 +185,7 @@ export function useMemberProgress(sitDownId: string | undefined) {
     }, 30_000);
 
     return () => clearInterval(interval);
-  }, [hasMembers]);
+  }, [hasEntries]);
 
-  return useMemo(() => Array.from(members.values()), [members]);
+  return useMemo(() => Array.from(entries.values()), [entries]);
 }

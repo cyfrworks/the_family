@@ -27,6 +27,12 @@ export function useSendMessage(sitDownId: string | undefined) {
       // Read cached sit-down data to skip redundant server-side DB fetches
       const cachedData = queryClient.getQueryData<{ participants: unknown[]; messages: unknown[] }>(['sitDown', 'enter', sitDownId]);
 
+      // Only send the most recent messages to avoid bloating the payload
+      const MAX_CONTEXT_MESSAGES = 25;
+      const recentMessages = cachedData?.messages
+        ? cachedData.messages.slice(-MAX_CONTEXT_MESSAGES)
+        : undefined;
+
       const input = {
         action: 'send_message',
         sit_down_id: sitDownId,
@@ -35,11 +41,14 @@ export function useSendMessage(sitDownId: string | undefined) {
         ...(replyToId && { reply_to_id: replyToId }),
         ...(cachedData && {
           participants: cachedData.participants,
-          messages: cachedData.messages,
+          messages: recentMessages,
         }),
       };
 
       try {
+        // Unique ID per execution so concurrent requests for the same member don't collide
+        const executionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
         const result = await new Promise<Record<string, unknown> | null>((resolve, reject) => {
           cyfrCallStream(
             'execution',
@@ -53,7 +62,7 @@ export function useSendMessage(sitDownId: string | undefined) {
             {
               onEmit: (data) => {
                 // Relay progress events to other participants via WebSocket
-                broadcastMemberProgress(data);
+                broadcastMemberProgress({ ...data, execution_id: executionId });
               },
               onComplete: (data) => {
                 if (data.status === 'error' || data.type === 'execution_failed') {

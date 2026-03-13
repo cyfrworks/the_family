@@ -32,7 +32,6 @@ interface ChatViewProps {
   messagesError: FriendlyError | null;
   onClearMessagesError: () => void;
   onRetryMessages: () => void;
-  refetchMessages: () => Promise<void>;
 }
 
 export function ChatView({
@@ -48,7 +47,6 @@ export function ChatView({
   messagesError,
   onClearMessagesError,
   onRetryMessages,
-  refetchMessages,
 }: ChatViewProps) {
   const send = useSendMessage(sitDownId);
   const memberProgress = useMemberProgress(sitDownId);
@@ -199,15 +197,14 @@ export function ChatView({
     const replyId = replyTo?.id;
     setReplyTo(null);
 
-    // Fire-and-forget: formula saves message to DB, realtime updates UI
+    // Fire-and-forget: formula saves message to DB, realtime delivers it to UI.
+    // No refetch — it races with realtime and causes messages to disappear/reappear.
     send
       .sendMessage(content, replyId)
       .then((result) => {
         if (!result && send.error) {
           toast.error(send.error);
         }
-        // Fallback refetch when formula finishes (covers non-working realtime)
-        refetchMessages();
       })
       .catch(() => {
         toast.error("The message didn't get through.");
@@ -258,7 +255,7 @@ export function ChatView({
       <View>
         {/* In-progress member cards only — completed progress is shown inline with messages */}
         {activeProgress.map((p: MemberProgress) => (
-          <MemberProgressCard key={p.memberId} progress={p} />
+          <MemberProgressCard key={p.executionId} progress={p} />
         ))}
 
         {/* Send error */}

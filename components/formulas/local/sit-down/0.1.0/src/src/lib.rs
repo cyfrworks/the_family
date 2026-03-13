@@ -36,7 +36,7 @@ const CONSUL_REF: &str = "formula:local.consul:0.1.0";
 const CAPOREGIME_REF: &str = "formula:local.caporegime:0.1.0";
 const BOOKKEEPER_REF: &str = "formula:local.bookkeeper:0.1.0";
 const MAX_ALL_MENTIONS: usize = 5;
-const MAX_CONTEXT_MESSAGES: usize = 50;
+const MAX_CONTEXT_MESSAGES: usize = 25;
 
 // ---------------------------------------------------------------------------
 // 1. Action routing
@@ -922,6 +922,11 @@ fn send_message(
                 "created_at": inserted_row.get("created_at").cloned().unwrap_or(Value::Null),
                 "profile": don_profile,
             }));
+            // Cap to the most recent N messages (client may send more than the window)
+            let len = arr.len();
+            if len > MAX_CONTEXT_MESSAGES {
+                *arr = arr.split_off(len - MAX_CONTEXT_MESSAGES);
+            }
         }
         cm
     } else {

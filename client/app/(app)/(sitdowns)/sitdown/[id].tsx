@@ -249,7 +249,6 @@ export default function SitdownScreen() {
           messagesError={messagesError}
           onClearMessagesError={clearMessagesError}
           onRetryMessages={refetchMessages}
-          refetchMessages={refetchMessages}
         />
       </View>
 

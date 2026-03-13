@@ -223,7 +223,13 @@ export function startGlobalChannel(userId: string, queryClient: QueryClient) {
         scheduleInvalidation(queryClient, 'commission');
       },
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // Channel degraded — refetch key data to recover anything missed
+        queryClient.invalidateQueries({ queryKey: ['sitDowns'] });
+        queryClient.invalidateQueries({ queryKey: ['commission', 'state'] });
+      }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +265,12 @@ export function broadcastMemberProgress(payload: Record<string, unknown>) {
     event: 'member_progress',
     payload,
   });
+}
+
+export function reconnectGlobalChannel(userId: string, queryClient: QueryClient) {
+  // Tear down and re-establish the global channel to ensure a fresh subscription
+  stopGlobalChannel();
+  startGlobalChannel(userId, queryClient);
 }
 
 export function stopGlobalChannel() {

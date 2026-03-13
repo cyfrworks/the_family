@@ -5,9 +5,11 @@
 		reverse_proxy cyfr:4000
 	}
 
-	# CYFR execution event streaming (SSE)
+	# CYFR execution event streaming (SSE) — flush immediately so events aren't buffered
 	handle /api/* {
-		reverse_proxy cyfr:4000
+		reverse_proxy cyfr:4000 {
+			flush_interval -1
+		}
 	}
 
 	# Informant REST endpoint — proxied to inform-proxy sidecar
