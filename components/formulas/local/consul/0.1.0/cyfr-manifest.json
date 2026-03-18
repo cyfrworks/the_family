@@ -70,11 +70,11 @@
   },
   "dependencies": {
     "static": [
-      { "ref": "catalyst:moonmoon69.claude:1.0.0", "reason": "Claude provider" },
-      { "ref": "catalyst:moonmoon69.openai:1.0.0", "reason": "OpenAI provider" },
-      { "ref": "catalyst:moonmoon69.gemini:1.0.0", "reason": "Gemini provider" },
-      { "ref": "catalyst:moonmoon69.grok:1.0.0", "reason": "Grok provider" },
-      { "ref": "catalyst:moonmoon69.openrouter:1.0.0", "reason": "OpenRouter provider" }
+      { "ref": "catalyst:moonmoon69.claude", "reason": "Claude provider" },
+      { "ref": "catalyst:moonmoon69.openai", "reason": "OpenAI provider" },
+      { "ref": "catalyst:moonmoon69.gemini", "reason": "Gemini provider" },
+      { "ref": "catalyst:moonmoon69.grok", "reason": "Grok provider" },
+      { "ref": "catalyst:moonmoon69.openrouter", "reason": "OpenRouter provider" }
     ]
   },
   "examples": [
@@ -82,7 +82,7 @@
       "name": "Single-shot advice",
       "description": "Get a one-shot LLM response from the consul",
       "input": {
-        "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
+        "catalyst_ref": "catalyst:moonmoon69.claude",
         "model": "claude-sonnet-4-6",
         "system": "You are a strategic advisor.",
         "conversation": [{ "role": "user", "content": "Should we expand into the west side?" }],

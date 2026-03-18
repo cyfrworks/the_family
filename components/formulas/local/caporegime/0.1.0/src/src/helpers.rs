@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 use crate::bindings::cyfr::formula::invoke;
 
-pub const SUPABASE_REF: &str = "catalyst:local.supabase";
+pub const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase";
 pub const WEB_CATALYST_REF: &str = "catalyst:moonmoon69.web";
 
 const MAX_EXTERNAL_TURNS: usize = 10;

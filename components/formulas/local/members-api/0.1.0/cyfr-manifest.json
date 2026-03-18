@@ -72,7 +72,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.3.1",
+        "ref": "catalyst:moonmoon69.supabase",
         "reason": "Database operations: member CRUD, model catalog lookup, profile tier check"
       }
     ]

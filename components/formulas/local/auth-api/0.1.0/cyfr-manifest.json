@@ -70,7 +70,7 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.3.1",
+        "ref": "catalyst:moonmoon69.supabase",
         "reason": "Supabase Auth operations"
       }
     ]

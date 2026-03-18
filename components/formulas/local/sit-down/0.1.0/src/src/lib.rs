@@ -29,12 +29,12 @@ bindings::export!(Component with_types_in bindings);
 // Constants
 // ---------------------------------------------------------------------------
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
-const MENTION_PARSER_REF: &str = "reagent:local.mention-parser:0.1.0";
-const SELF_REF: &str = "formula:local.sit-down:0.1.0";
-const CONSUL_REF: &str = "formula:local.consul:0.1.0";
-const CAPOREGIME_REF: &str = "formula:local.caporegime:0.1.0";
-const BOOKKEEPER_REF: &str = "formula:local.bookkeeper:0.1.0";
+const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase";
+const MENTION_PARSER_REF: &str = "reagent:local.mention-parser";
+const SELF_REF: &str = "formula:local.sit-down";
+const CONSUL_REF: &str = "formula:local.consul";
+const CAPOREGIME_REF: &str = "formula:local.caporegime";
+const BOOKKEEPER_REF: &str = "formula:local.bookkeeper";
 const MAX_ALL_MENTIONS: usize = 5;
 const MAX_CONTEXT_MESSAGES: usize = 25;
 
@@ -1519,11 +1519,11 @@ fn build_conversation_history(
 
 fn resolve_provider_ref(provider: &str) -> Result<(String, String), String> {
     match provider.to_lowercase().as_str() {
-        "claude" => Ok(("catalyst:moonmoon69.claude:1.0.0".to_string(), "claude".to_string())),
-        "openai" => Ok(("catalyst:moonmoon69.openai:1.0.0".to_string(), "openai".to_string())),
-        "gemini" => Ok(("catalyst:moonmoon69.gemini:1.0.0".to_string(), "gemini".to_string())),
-        "openrouter" => Ok(("catalyst:moonmoon69.openrouter:1.0.0".to_string(), "openrouter".to_string())),
-        "grok" => Ok(("catalyst:moonmoon69.grok:1.0.0".to_string(), "grok".to_string())),
+        "claude" => Ok(("catalyst:moonmoon69.claude".to_string(), "claude".to_string())),
+        "openai" => Ok(("catalyst:moonmoon69.openai".to_string(), "openai".to_string())),
+        "gemini" => Ok(("catalyst:moonmoon69.gemini".to_string(), "gemini".to_string())),
+        "openrouter" => Ok(("catalyst:moonmoon69.openrouter".to_string(), "openrouter".to_string())),
+        "grok" => Ok(("catalyst:moonmoon69.grok".to_string(), "grok".to_string())),
         _ => Err(format!("Unsupported AI provider: '{provider}'")),
     }
 }

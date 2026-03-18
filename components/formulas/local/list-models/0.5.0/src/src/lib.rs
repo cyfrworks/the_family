@@ -33,11 +33,11 @@ struct Provider {
 }
 
 const ALL_PROVIDERS: &[Provider] = &[
-    Provider { key: "claude",     registry_ref: "catalyst:moonmoon69.claude:1.0.0"     },
-    Provider { key: "openai",     registry_ref: "catalyst:moonmoon69.openai:1.0.0"     },
-    Provider { key: "gemini",     registry_ref: "catalyst:moonmoon69.gemini:1.0.0"     },
-    Provider { key: "grok",       registry_ref: "catalyst:moonmoon69.grok:1.0.0"       },
-    Provider { key: "openrouter", registry_ref: "catalyst:moonmoon69.openrouter:1.0.0" },
+    Provider { key: "claude",     registry_ref: "catalyst:moonmoon69.claude"     },
+    Provider { key: "openai",     registry_ref: "catalyst:moonmoon69.openai"     },
+    Provider { key: "gemini",     registry_ref: "catalyst:moonmoon69.gemini"     },
+    Provider { key: "grok",       registry_ref: "catalyst:moonmoon69.grok"       },
+    Provider { key: "openrouter", registry_ref: "catalyst:moonmoon69.openrouter" },
 ];
 
 // ---------------------------------------------------------------------------

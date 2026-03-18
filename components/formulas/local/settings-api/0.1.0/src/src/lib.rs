@@ -25,7 +25,7 @@ impl Guest for Component {
 
 bindings::export!(Component with_types_in bindings);
 
-const SUPABASE_REF: &str = "catalyst:local.supabase:0.3.3";
+const SUPABASE_REF: &str = "catalyst:moonmoon69.supabase";
 const MIN_PASSWORD_LENGTH: usize = 8;
 
 fn handle_request(input: &str) -> Result<String, String> {

@@ -189,7 +189,7 @@
       "description": "Search entries and synthesize an AI response from matching knowledge",
       "input": {
         "action": "respond",
-        "catalyst_ref": "catalyst:moonmoon69.claude:1.0.0",
+        "catalyst_ref": "catalyst:moonmoon69.claude",
         "model": "claude-sonnet-4-6",
         "conversation": [{ "role": "user", "content": "What do we know about the Barzini operation?" }],
         "member": { "name": "The Bookkeeper", "owner_id": "user-1" },

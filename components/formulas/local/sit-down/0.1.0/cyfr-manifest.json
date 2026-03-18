@@ -88,43 +88,43 @@
   "dependencies": {
     "static": [
       {
-        "ref": "catalyst:moonmoon69.supabase:0.3.1",
+        "ref": "catalyst:moonmoon69.supabase",
         "reason": "Database operations: CRUD, participants, messages, typing indicators"
       },
       {
-        "ref": "catalyst:moonmoon69.claude:1.0.0",
+        "ref": "catalyst:moonmoon69.claude",
         "reason": "Claude AI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.openai:1.0.0",
+        "ref": "catalyst:moonmoon69.openai",
         "reason": "OpenAI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.gemini:1.0.0",
+        "ref": "catalyst:moonmoon69.gemini",
         "reason": "Gemini AI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.openrouter:1.0.0",
+        "ref": "catalyst:moonmoon69.openrouter",
         "reason": "OpenRouter AI provider for member responses"
       },
       {
-        "ref": "catalyst:moonmoon69.grok:1.0.0",
+        "ref": "catalyst:moonmoon69.grok",
         "reason": "Grok AI provider for member responses"
       },
       {
-        "ref": "reagent:local.mention-parser:0.1.0",
+        "ref": "reagent:local.mention-parser",
         "reason": "Parse @mentions from message text server-side"
       },
       {
-        "ref": "formula:local.consul:0.1.0",
+        "ref": "formula:local.consul",
         "reason": "Consul member — single-shot LLM advisor"
       },
       {
-        "ref": "formula:local.caporegime:0.1.0",
+        "ref": "formula:local.caporegime",
         "reason": "Caporegime member — agentic orchestrator with tools"
       },
       {
-        "ref": "formula:local.bookkeeper:0.1.0",
+        "ref": "formula:local.bookkeeper",
         "reason": "Bookkeeper member — knowledge retrieval and synthesis"
       }
     ]
