@@ -50,8 +50,9 @@
 │  │  local.members-api       ──► member CRUD + crews        │    │
 │  │  local.sit-down          ──► CRUD, participants,        │    │
 │  │                              messages, mention routing   │    │
-│  │  local.family-member     ──► unified behavior engine    │    │
-│  │                              (consul, capo, bookkeeper) │    │
+│  │  local.consul             ──► single-shot LLM advisor   │    │
+│  │  local.caporegime         ──► two-mode workflow engine   │    │
+│  │  local.bookkeeper         ──► bookkeeper data + search   │    │
 │  │  local.bookkeeper-api    ──► bookkeeper entry CRUD      │    │
 │  │  local.settings-api      ──► profile + password mgmt    │    │
 │  │  local.commission-api    ──► commission contacts         │    │
@@ -149,7 +150,7 @@ Templates are personality-only — the model is chosen at creation time from wha
 Create a project at [supabase.com](https://supabase.com), then run the migrations:
 
 ```
-Run each SQL file from the migrations/ directory (001 through 018)
+Run each SQL file from the migrations/ directory (001 through 020)
 in order in your Supabase project → SQL Editor → New Query → Run
 ```
 
@@ -217,7 +218,7 @@ cyfr secret set
 cyfr secret grant
 
 # Set host policies (which domains each component can reach)
-cyfr policy set c:moonmoon69.supabase:0.3.0 allowed_domains '["YOUR_PROJECT.supabase.co"]'
+cyfr policy set c:moonmoon69.supabase:0.3.3 allowed_domains '["YOUR_PROJECT.supabase.co"]'
 cyfr policy set c:moonmoon69.claude:1.0.0 allowed_domains '["api.anthropic.com"]'
 cyfr policy set c:moonmoon69.openai:1.0.0 allowed_domains '["api.openai.com"]'
 cyfr policy set c:moonmoon69.gemini:1.0.0 allowed_domains '["generativelanguage.googleapis.com"]'
@@ -230,8 +231,9 @@ cyfr policy set f:local.commission-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.members-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.admin-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.sit-down:0.1.0 allowed_tools '["execution.run"]'
-cyfr policy set f:local.family-member:0.1.0 allowed_tools '["execution.run", "execution.list", "tools.list", "cron.create", "cron.list", "cron.update", "cron.delete"]'
+cyfr policy set f:local.consul:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.caporegime:0.1.0 allowed_tools '["execution.run", "execution.list", "schedule.create", "schedule.list", "schedule.pause", "schedule.delete"]'
+cyfr policy set f:local.bookkeeper:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.bookkeeper-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.informant-api:0.1.0 allowed_tools '["execution.run"]'
 cyfr policy set f:local.list-models:0.5.0 allowed_tools '["execution.run"]'
@@ -267,8 +269,7 @@ And these formula tool policies (formulas dispatch sub-component calls via MCP t
 
 | Component | Allowed tools |
 |-----------|--------------|
-| All API formulas | `execution.run` |
-| `local.family-member` | `execution.run`, `execution.list`, `tools.list`, `cron.*` |
+| All API formulas + `local.consul`, `local.bookkeeper` | `execution.run` |
 | `local.caporegime` | `execution.run`, `execution.list`, `schedule.*` |
 | `local.informant-api` | `execution.run` |
 | `local.list-models` | `execution.run` |
@@ -311,7 +312,7 @@ The Godfather manages a `model_catalog` table that maps user-facing aliases (e.g
 
 ### Hearing from the crew — AI Responses
 
-@mention a Member and they respond. @all and everyone at the table speaks. The `sit-down` formula routes each mention to the `family-member` formula, which handles behavior per member type:
+@mention a Member and they respond. @all and everyone at the table speaks. The `sit-down` formula routes each mention to the appropriate formula — `consul`, `caporegime`, or `bookkeeper` — based on member type:
 
 - **Consuls** — single-shot LLM call, response appears directly in the sit-down
 - **Caporegimes** — acknowledge immediately ("On it, boss."), run Brain mode: an agentic loop with hardcoded tools (delegate to soldiers, search/store bookkeeper data, read journal, create/run jobs). Posts a summary report back to the sit-down. Can also run in Hands mode for saved jobs — mechanical step execution with no orchestration LLM, supporting parallel fan-out and CYFR cron scheduling. Full details tracked in the Operations table
@@ -414,7 +415,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 
 | Component | Type | Source | Description |
 |-----------|------|--------|-------------|
-| `catalyst:moonmoon69.supabase:0.3.0` | Catalyst | Registry | Auth (GoTrue), database (PostgREST), storage, edge functions |
+| `catalyst:moonmoon69.supabase:0.3.3` | Catalyst | Registry | Auth (GoTrue), database (PostgREST), storage, edge functions |
 | `catalyst:moonmoon69.claude:1.0.0` | Catalyst | Registry | Anthropic Claude API — messages, streaming, model listing |
 | `catalyst:moonmoon69.openai:1.0.0` | Catalyst | Registry | OpenAI API — responses, completions, model listing |
 | `catalyst:moonmoon69.gemini:1.0.0` | Catalyst | Registry | Google Gemini API — generation, model listing |
@@ -423,7 +424,6 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 | `formula:local.admin-api:0.1.0` | Formula | Local | User listing, tier management, model catalog CRUD |
 | `formula:local.members-api:0.1.0` | Formula | Local | Member CRUD, crew management, tier-based model access |
 | `formula:local.sit-down:0.1.0` | Formula | Local | Sit-down CRUD, participants, messages, mention routing |
-| `formula:local.family-member:0.1.0` | Formula | Local | Unified behavior engine — consul, caporegime, bookkeeper |
 | `formula:local.bookkeeper-api:0.1.0` | Formula | Local | Bookkeeper entry CRUD and full-text search |
 | `formula:local.settings-api:0.1.0` | Formula | Local | Profile updates, password changes, push token registration |
 | `formula:local.commission-api:0.1.0` | Formula | Local | Commission contacts: invite, accept, decline, remove |
@@ -446,7 +446,6 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │   ├── admin.tsx           # Admin page
 │   │   │   ├── members.tsx         # Members page (consuls, capos, bookkeepers)
 │   │   │   ├── operations.tsx      # Operations dashboard
-│   │   │   ├── bookkeeper.tsx      # Bookkeeper browser
 │   │   │   ├── commission.tsx      # Commission page
 │   │   │   ├── settings.tsx        # Settings page
 │   │   │   └── (sitdowns)/         # Sit-down route group
@@ -455,41 +454,21 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   │   │       └── sitdown/[id].tsx  # Sit-down detail
 │   │   ├── (auth)/                 # Auth routes (login, signup, reset-password)
 │   │   └── _layout.tsx             # Root layout + providers
-│   ├── components/
-│   │   ├── admin/                  # ModelCatalogManager, AddModelModal, UserTierManager
-│   │   ├── chat/                   # ChatView, MessageBubble, MessageComposer,
-│   │   │                           # MessageContent, MentionPopover, TypingIndicator
-│   │   ├── commission/             # CreateCommissionSitDownModal,
-│   │   │                           # InviteToCommissionModal, PendingInvitesBanner
-│   │   ├── common/                 # RunYourFamilyButton
-│   │   ├── layout/                 # Sidebar, MobileTabBar
-│   │   ├── members/                # MemberCard, MemberEditor, CaporegimeCard,
-│   │   │                           # InformantCard, InformantUsage
-│   │   ├── sitdown/                # CreateSitdownModal, MemberList
-│   │   ├── sitdowns/               # SitDownList, SitDownListItem
-│   │   └── ui/                     # Dropdown
-│   ├── config/
-│   │   └── constants.ts            # Member templates, tier labels, limits
-│   ├── contexts/
-│   │   ├── AuthContext.tsx          # Auth state, sign-up/sign-in, profile, tier
-│   │   ├── CommissionContext.tsx    # Commission contacts + realtime
-│   │   └── FamilySitDownContext.tsx # Sit-down state for family view
-│   ├── hooks/                      # useMembers, useSitDowns, useSitDownData,
-│   │                               # useOperations, useBookkeeperEntries,
-│   │                               # useInformants, useCommissionSitDowns,
-│   │                               # useRealtimeStatus, useMention, etc.
-│   ├── lib/
-│   │   ├── cyfr.ts                 # CYFR MCP client (JSON-RPC 2.0)
-│   │   ├── realtime.ts             # Supabase Realtime via CYFR
-│   │   ├── realtime-hub.ts         # Centralized realtime channel manager
-│   │   ├── supabase.ts             # Supabase operations via CYFR catalyst
-│   │   ├── types.ts                # TypeScript types
-│   │   ├── mention-parser.ts       # Client-side @mention parsing
-│   │   ├── alert.ts                # Cross-platform alert utility
-│   │   ├── toast.ts                # Toast notification utility
-│   │   └── error-messages.ts       # User-facing error messages
-│   ├── providers/
-│   │   └── RealtimeProvider.tsx     # Realtime connection provider
+│   ├── components/                # UI components
+│   │   ├── admin/                  # Model catalog + user tier management
+│   │   ├── chat/                   # Chat view, messages, composer, mentions
+│   │   ├── commission/             # Commission modals + invite banner
+│   │   ├── common/                 # Shared components
+│   │   ├── layout/                 # Sidebar, mobile tab bar
+│   │   ├── members/                # Member cards + editors
+│   │   ├── sitdown/                # Sit-down settings + member list
+│   │   ├── sitdowns/               # Sit-down list views
+│   │   └── ui/                     # Generic UI primitives
+│   ├── config/                    # Constants, templates, limits
+│   ├── contexts/                  # Auth, commission, sit-down contexts
+│   ├── hooks/                     # Data fetching + realtime hooks
+│   ├── lib/                       # CYFR client, Supabase, realtime, types
+│   ├── providers/                 # Realtime connection provider
 │   ├── assets/                     # Fonts, images (banner, logo, icons)
 │   ├── global.css                  # Tailwind + dark mafia theme
 │   ├── metro.config.js             # Metro bundler + /cyfr dev proxy
@@ -504,7 +483,6 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │           ├── admin-api/0.1.0/        # Admin operations + model catalog CRUD
 │           ├── bookkeeper-api/0.1.0/   # Bookkeeper entry CRUD + search
 │           ├── commission-api/0.1.0/   # Commission contact management
-│           ├── family-member/0.1.0/    # Unified behavior engine
 │           ├── informant-api/0.1.0/    # Informant token auth + message dispatch
 │           ├── caporegime/0.1.0/       # Two-mode workflow orchestrator
 │           ├── consul/0.1.0/          # Single-shot LLM invocation (soldier delegation)
@@ -517,7 +495,7 @@ Dons can invite other Dons by email to form cross-family alliances. Commission s
 │   ├── catalyst/                   # Catalyst WIT (run, http, secrets)
 │   ├── formula/                    # Formula WIT (run, invoke)
 │   └── reagent/                    # Reagent WIT
-├── migrations/                     # Database migrations (001 through 018)
+├── migrations/                     # Database migrations (001 through 020)
 ├── inform-proxy.js                 # REST-to-CYFR proxy for /inform endpoint
 ├── docker-compose.yml              # CYFR + inform-proxy + web build + Caddy
 ├── Caddyfile                       # Caddy reverse proxy config (production)

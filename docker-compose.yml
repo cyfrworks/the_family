@@ -26,6 +26,7 @@ services:
       - .env
     environment:
       CYFR_URL: http://cyfr:4000/mcp
+      CYFR_PUBLIC_KEY: ${EXPO_PUBLIC_CYFR_PUBLIC_KEY}
     command: node inform-proxy.js
     depends_on:
       cyfr:

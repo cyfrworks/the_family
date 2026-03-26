@@ -30,7 +30,6 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "softwareKeyboardLayoutMode": "adjustResize",
       "package": "com.thefamily.app"
     },
     "web": {
@@ -57,7 +56,8 @@
           "icon": "./assets/images/icon.png",
           "color": "#d97706"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
