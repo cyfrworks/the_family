@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState } from 'react-native';
-import { auth, getAccessToken, setAccessToken, hydrateTokens, initAuthListener } from '../lib/supabase';
+import { AppState, Platform } from 'react-native';
+import { auth, getAccessToken, setAccessToken, setRefreshToken, hydrateTokens, initAuthListener } from '../lib/supabase';
 import { clearRealtime, setRealtimeAuth, getSupabase } from '../lib/realtime';
 import { useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { cyfrCall } from '../lib/cyfr';
 import { getCurrentPushToken, unregisterPushToken } from '../lib/notifications';
 import { reconnectGlobalChannel } from '../lib/realtime-hub';
@@ -48,6 +49,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       try {
+        // On web, check for Supabase auth callback in URL hash fragments
+        // (email confirmation, password reset links redirect here with tokens)
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hash) {
+          const hash = window.location.hash.substring(1);
+          const params = new URLSearchParams(hash);
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+          const type = params.get('type');
+
+          if (accessToken && refreshToken) {
+            await getSupabase().auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            setAccessToken(accessToken);
+            setRefreshToken(refreshToken);
+            // Clear hash from URL without reload
+            window.history.replaceState(null, '', window.location.pathname);
+
+            if (type === 'recovery') {
+              initAuthListener();
+              setLoading(false);
+              router.replace('/(auth)/reset-password');
+              return;
+            }
+          }
+        }
+
         await hydrateTokens();
         initAuthListener();
 

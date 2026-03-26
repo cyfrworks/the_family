@@ -28,26 +28,14 @@ export default function ResetPasswordScreen() {
     setError('');
     setLoading(true);
     try {
-      // On web, parse recovery token from URL hash
-      let recoveryToken = '';
-      let refreshToken = '';
-      if (typeof window !== 'undefined' && window.location) {
-        const hash = window.location.hash.substring(1);
-        const params = new URLSearchParams(hash);
-        recoveryToken = params.get('access_token') || '';
-        refreshToken = params.get('refresh_token') || '';
-      }
-
-      if (!recoveryToken) {
-        setError('No recovery token found. Please use the link from your email.');
+      // Session is already set by AuthContext when it detected the recovery callback.
+      // Verify we have an active session before updating.
+      const { data: { session } } = await getSupabase().auth.getSession();
+      if (!session) {
+        setError('No recovery session found. Please use the link from your email.');
         setLoading(false);
         return;
       }
-
-      await getSupabase().auth.setSession({
-        access_token: recoveryToken,
-        refresh_token: refreshToken,
-      });
 
       const { error: updateError } = await getSupabase().auth.updateUser({ password: newPassword });
       if (updateError) throw new Error(updateError.message);
