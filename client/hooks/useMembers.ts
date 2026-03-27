@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
-import type { Member, MemberType } from '../lib/types';
+import type { Member, MemberType, SoldierType, SoldierConfig } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 
 const MEMBERS_API_REF = 'formula:local.members-api:0.1.0';
@@ -45,8 +45,8 @@ export function useMembers(memberType?: MemberType) {
     avatar_url?: string;
     member_type?: MemberType;
     caporegime_id?: string;
-    soldier_type?: string;
-    soldier_config?: Record<string, unknown>;
+    soldier_type?: SoldierType;
+    soldier_config?: SoldierConfig;
   }) {
     const accessToken = getAccessToken();
     if (!accessToken) throw new Error('Not authenticated');

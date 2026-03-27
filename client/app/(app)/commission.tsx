@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
-import { MoreVertical, Trash2, UserPlus } from 'lucide-react-native';
+import { MoreVertical, Trash2, UserPlus, MessageCircle } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { useCommission } from '../../hooks/useCommission';
+import { useBackRoomSitDowns } from '../../hooks/useBackRoomSitDowns';
 import { InviteToCommissionModal } from '../../components/commission/InviteToCommissionModal';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { toast } from '../../lib/toast';
@@ -9,7 +11,9 @@ import { confirmAlert } from '../../lib/alert';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
 
 export default function CommissionScreen() {
+  const router = useRouter();
   const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
+  const { openOrCreateBackRoom, markAsRead } = useBackRoomSitDowns();
   const [showInvite, setShowInvite] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
@@ -134,6 +138,23 @@ export default function CommissionScreen() {
                     </Pressable>
                   }
                 >
+                  <Pressable
+                    onPress={async () => {
+                      setMenuOpen(null);
+                      try {
+                        const id = await openOrCreateBackRoom(c.contact_user_id);
+                        markAsRead(id);
+                        router.push(`/sitdown/${id}`);
+                      } catch {
+                        toast.error("Couldn't start conversation.");
+                      }
+                    }}
+                    className="flex-row items-center gap-2 px-3 py-1.5"
+                    style={{ width: 144 }}
+                  >
+                    <MessageCircle size={14} color="#d97706" />
+                    <Text className="text-sm text-gold-500">Pull aside</Text>
+                  </Pressable>
                   <Pressable
                     onPress={() => handleRemoveContact(c.contact_user_id, contactName)}
                     className="flex-row items-center gap-2 px-3 py-1.5"

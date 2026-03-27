@@ -11,6 +11,7 @@ interface MemberListProps {
   participants: SitDownParticipant[];
   availableMembers?: Member[];
   isCommission?: boolean;
+  isDirect?: boolean;
   membersByOwner?: Map<string, MembersByOwner>;
   addableContacts?: CommissionContact[];
   onAddMember?: (memberId: string) => Promise<void>;
@@ -24,6 +25,7 @@ export function MemberList({
   participants,
   availableMembers,
   isCommission,
+  isDirect,
   membersByOwner,
   addableContacts,
   onAddMember,
@@ -136,7 +138,7 @@ export function MemberList({
               {dons.map((d) => {
                 const donIsAdmin = participants.find((p) => p.user_id === d.user_id)?.is_admin;
                 const isSelf = d.user_id === user?.id;
-                const showToggle = isCommission && onToggleAdmin && callerIsAdmin && !isSelf;
+                const showToggle = isCommission && !isDirect && onToggleAdmin && callerIsAdmin && !isSelf;
 
                 return (
                   <View key={d.id} className="flex-row items-center gap-2 rounded-md px-2 py-1.5">
@@ -148,7 +150,7 @@ export function MemberList({
                           <Text className="text-stone-600"> (you)</Text>
                         )}
                       </Text>
-                      {isCommission && donIsAdmin && (
+                      {isCommission && !isDirect && donIsAdmin && (
                         showToggle ? (
                           <Pressable
                             onPress={() => handleToggleAdmin(d.user_id, d.profile?.display_name ?? 'Don', true)}

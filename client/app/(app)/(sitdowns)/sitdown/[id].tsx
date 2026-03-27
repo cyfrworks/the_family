@@ -136,18 +136,28 @@ export default function SitdownScreen() {
     : [...myMembers, ...myInformants];
 
   // For commission sit-downs, find contacts not yet in the sit-down
+  // Back Room (is_direct): no additional Dons can be invited
   const participantUserIds = new Set(
     participants.filter((p) => p.user_id).map((p) => p.user_id),
   );
-  const addableContacts = sitDown.is_commission
+  const addableContacts = sitDown.is_commission && !sitDown.is_direct
     ? contacts.filter((c) => !participantUserIds.has(c.contact_user_id))
     : [];
+
+  // For Back Room, derive the other Don's display name for the header
+  const otherDon = sitDown.is_direct
+    ? participants.find((p) => p.user_id && p.user_id !== user?.id)
+    : null;
+  const headerTitle = sitDown.is_direct && otherDon?.profile
+    ? otherDon.profile.display_name
+    : sitDown.name;
 
   // Shared MemberList props
   const memberListProps = {
     participants,
     availableMembers,
     isCommission: sitDown.is_commission,
+    isDirect: sitDown.is_direct ?? false,
     membersByOwner: sitDown.is_commission ? membersByOwner : undefined,
     addableContacts,
     onAddMember: async (memberId: string) => {
@@ -158,7 +168,7 @@ export default function SitdownScreen() {
         toast.error("Couldn't bring them in.");
       }
     },
-    onAddUser: sitDown.is_commission
+    onAddUser: sitDown.is_commission && !sitDown.is_direct
       ? async (userId: string) => {
           try {
             await addDon(userId);
@@ -176,7 +186,7 @@ export default function SitdownScreen() {
         toast.error("They won't leave.");
       }
     },
-    onToggleAdmin: sitDown.is_commission
+    onToggleAdmin: sitDown.is_commission && !sitDown.is_direct
       ? async (userId: string) => {
           try {
             await toggleAdmin(userId);
@@ -186,15 +196,17 @@ export default function SitdownScreen() {
           }
         }
       : undefined,
-    onLeave: async () => {
-      try {
-        await leaveSitDown();
-        router.back();
-        toast.success("You've left the table.");
-      } catch {
-        toast.error("Couldn't leave.");
-      }
-    },
+    onLeave: sitDown.is_direct
+      ? undefined
+      : async () => {
+          try {
+            await leaveSitDown();
+            router.back();
+            toast.success("You've left the table.");
+          } catch {
+            toast.error("Couldn't leave.");
+          }
+        },
   };
 
   const content = (
@@ -217,7 +229,7 @@ export default function SitdownScreen() {
                 className="font-serif text-lg font-bold text-stone-100"
                 numberOfLines={1}
               >
-                {sitDown.name}
+                {headerTitle}
               </Text>
               {sitDown.description && (
                 <Text className="text-xs text-stone-500" numberOfLines={1}>

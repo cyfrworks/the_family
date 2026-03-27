@@ -12,6 +12,7 @@ export interface ProgressEvent {
   toolCallId?: string;
   input?: string;
   preview?: string;
+  message?: string;
   timestamp: number;
 }
 
@@ -24,6 +25,7 @@ export interface MemberProgress {
   streamedContent: string;
   currentTurn: number;
   completed: boolean;
+  isError: boolean;
   toolsUsed: string[];
   totalTokens: number;
   startedAt: number;
@@ -84,6 +86,46 @@ export function useMemberProgress(sitDownId: string | undefined) {
         return;
       }
 
+      if (kind === 'error') {
+        const errorMessage = (data.message as string) || 'Something went wrong';
+        setEntries((prev) => {
+          const existing = prev.get(key);
+          const base = existing || {
+            executionId: key,
+            memberId,
+            memberName,
+            statusText: '',
+            events: [],
+            streamedContent: '',
+            currentTurn: 0,
+            completed: false,
+            isError: false,
+            toolsUsed: [],
+            totalTokens: 0,
+            startedAt: Date.now(),
+          };
+          const next = new Map(prev);
+          next.set(key, {
+            ...base,
+            completed: true,
+            isError: true,
+            statusText: errorMessage,
+            events: [...base.events, { kind, message: errorMessage, timestamp: Date.now() }],
+          });
+          return next;
+        });
+        setTimeout(() => {
+          setEntries((prev) => {
+            const existing = prev.get(key);
+            if (!existing || !existing.completed) return prev;
+            const next = new Map(prev);
+            next.delete(key);
+            return next;
+          });
+        }, 60_000);
+        return;
+      }
+
       const now = Date.now();
 
       setEntries((prev) => {
@@ -97,6 +139,7 @@ export function useMemberProgress(sitDownId: string | undefined) {
           streamedContent: '',
           currentTurn: 0,
           completed: false,
+          isError: false,
           toolsUsed: [],
           totalTokens: 0,
           startedAt: Date.now(),

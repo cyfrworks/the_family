@@ -132,8 +132,19 @@ export function useSitDownData(sitDownId: string | undefined) {
     return () => {
       setActiveSitDown(null);
       dividerLastReadAtRef.current = null;
-      // Update cached last_read_at so re-entry doesn't show a stale unread divider
       if (sitDownId) {
+        // Update server-side read receipt so refetches don't show stale unread counts
+        const accessToken = getAccessToken();
+        if (accessToken) {
+          cyfrCall('execution', {
+            action: 'run',
+            reference: SIT_DOWN_REF,
+            input: { action: 'mark_read', access_token: accessToken, sit_down_id: sitDownId },
+            type: 'formula',
+            timeout: 10000,
+          }).catch(() => {}); // fire-and-forget
+        }
+        // Update cached last_read_at so re-entry doesn't show a stale unread divider
         queryClient.setQueryData<EnterSitDownData>(['sitDown', 'enter', sitDownId], (old) => {
           if (!old) return old;
           return { ...old, last_read_at: new Date().toISOString() };
@@ -164,12 +175,15 @@ export function useSitDownData(sitDownId: string | undefined) {
       queryClient.setQueryData<SitDown[]>(['sitDowns'], (old) =>
         old?.map((sd) => (sd.id === sitDownId ? { ...sd, unread_count: 0 } : sd)),
       );
-      // Also reset commission sitdown unread
-      queryClient.setQueryData<{ contacts: unknown[]; pendingInvites: unknown[]; sentInvites: unknown[]; commissionSitDowns: SitDown[] }>(['commission', 'state'], (old) => {
+      // Also reset commission / back room sitdown unread
+      queryClient.setQueryData<{ contacts: unknown[]; pendingInvites: unknown[]; sentInvites: unknown[]; commissionSitDowns: SitDown[]; backRoomSitDowns: SitDown[] }>(['commission', 'state'], (old) => {
         if (!old) return old;
         return {
           ...old,
           commissionSitDowns: old.commissionSitDowns.map((sd) =>
+            sd.id === sitDownId ? { ...sd, unread_count: 0 } : sd,
+          ),
+          backRoomSitDowns: old.backRoomSitDowns.map((sd) =>
             sd.id === sitDownId ? { ...sd, unread_count: 0 } : sd,
           ),
         };

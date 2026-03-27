@@ -171,6 +171,15 @@ fn handle_request(input: &str) -> Result<String, String> {
             send_message(access_token, sit_down_id, content, reply_to_id, client_participants, client_messages)
         }
 
+        // Back room: create or get direct 1-1 sitdown
+        "create_or_get_back_room" => {
+            let contact_user_id = parsed
+                .get("contact_user_id")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required 'contact_user_id'")?;
+            create_or_get_back_room(access_token, contact_user_id)
+        }
+
         // Internal: AI member response (spawned by send_message)
         "_respond_member" => {
             let member_id = parsed
@@ -628,6 +637,26 @@ fn add_member(access_token: &str, sit_down_id: &str, member_id: &str) -> Result<
 }
 
 fn add_don(access_token: &str, sit_down_id: &str, don_user_id: &str) -> Result<String, String> {
+    // Guard: reject adding Dons to direct (Back Room) sitdowns
+    let sd_rows = supabase_call(
+        "db.select",
+        json!({
+            "table": "sit_downs",
+            "select": "is_direct",
+            "filters": [{ "column": "id", "op": "eq", "value": sit_down_id }],
+            "access_token": access_token
+        }),
+    )?;
+    if sd_rows
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|row| row.get("is_direct"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Err("Cannot invite additional Dons to a Back Room conversation".to_string());
+    }
+
     let user = fetch_user(access_token)?;
     let caller_id = user
         .get("id")
@@ -688,6 +717,23 @@ fn remove_participant(
     )?;
 
     Ok(json!({ "deleted": true }).to_string())
+}
+
+// ---------------------------------------------------------------------------
+// 3a-2. Back Room (direct 1-1)
+// ---------------------------------------------------------------------------
+
+fn create_or_get_back_room(access_token: &str, contact_user_id: &str) -> Result<String, String> {
+    let result = supabase_call(
+        "db.rpc",
+        json!({
+            "function": "create_or_get_back_room",
+            "body": { "p_contact_user_id": contact_user_id },
+            "access_token": access_token
+        }),
+    )?;
+
+    Ok(json!({ "back_room": result }).to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,6 +1102,12 @@ fn send_message(
                 .and_then(|v| v.as_str())
                 .or_else(|| batch_result.get("error").and_then(|v| v.as_str()))
                 .unwrap_or("Formula invocation failed");
+
+            // Emit error event from parent so the client's SSE stream sees it
+            let member_name = lookup_member_name(participants_arr, mid);
+            emit_sit_down_event(sit_down_id, mid, &member_name,
+                json!({"kind": "error", "message": clean_error_message(err_msg)}));
+
             results.push(json!({
                 "member_id": mid,
                 "status": "error",
@@ -1075,6 +1127,11 @@ fn send_message(
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Formula error");
+
+            let member_name = lookup_member_name(participants_arr, mid);
+            emit_sit_down_event(sit_down_id, mid, &member_name,
+                json!({"kind": "error", "message": clean_error_message(err_msg)}));
+
             results.push(json!({
                 "member_id": mid,
                 "status": "error",
@@ -1515,6 +1572,128 @@ fn build_conversation_history(
     }
 
     history
+}
+
+fn lookup_member_name(participants: &[Value], member_id: &str) -> String {
+    participants
+        .iter()
+        .find(|p| {
+            p.get("member")
+                .and_then(|m| m.get("id"))
+                .and_then(|v| v.as_str())
+                == Some(member_id)
+        })
+        .and_then(|p| p.get("member"))
+        .and_then(|m| m.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string()
+}
+
+fn clean_error_message(raw: &str) -> String {
+    let mut msg = raw.to_string();
+
+    // Iteratively unwrap layers of error nesting (JSON envelopes, prefixes, Elixir maps)
+    for _ in 0..5 {
+        let current = msg.trim().to_string();
+
+        // Already user-friendly — stop
+        if current.contains("model has been removed")
+            || current.starts_with("Empty response from")
+            || current.starts_with("Unsupported AI provider")
+        {
+            return current;
+        }
+
+        // Try to extract message from embedded JSON: "... {\"message\":\"...\", ...}"
+        if let Some(json_start) = current.find('{') {
+            let json_part = &current[json_start..];
+            if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
+                if let Some(inner) = parsed
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        parsed
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|v| v.as_str())
+                    })
+                {
+                    if inner != current {
+                        msg = inner.to_string();
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Try to extract from Elixir map format: %{"message" => "...", ...}
+        if current.contains("\"message\" => \"") {
+            if let Some(extracted) = extract_elixir_message(&current) {
+                if extracted != current {
+                    msg = extracted;
+                    continue;
+                }
+            }
+        }
+
+        // Strip common prefixes
+        let mut stripped = false;
+        for prefix in &[
+            "consul invoke error: ",
+            "caporegime invoke error: ",
+            "bookkeeper invoke error: ",
+            "consul error: ",
+            "caporegime error: ",
+            "bookkeeper error: ",
+            "Catalyst invoke error: ",
+            "Catalyst error: ",
+        ] {
+            if let Some(rest) = current.strip_prefix(prefix) {
+                if !rest.is_empty() {
+                    msg = rest.to_string();
+                    stripped = true;
+                    break;
+                }
+            }
+        }
+
+        if !stripped {
+            break;
+        }
+    }
+
+    msg
+}
+
+/// Extract the innermost "message" => "..." value from an Elixir map string.
+fn extract_elixir_message(s: &str) -> Option<String> {
+    let needle = "\"message\" => \"";
+    let mut best: Option<String> = None;
+    let mut search_from = 0;
+    while let Some(rel) = s[search_from..].find(needle) {
+        let value_start = search_from + rel + needle.len();
+        let after = &s[value_start..];
+        // Find closing quote (skip escaped quotes)
+        let bytes = after.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                let val = after[..i].replace("\\\"", "\"").replace("\\\\", "\\");
+                if !val.is_empty() {
+                    best = Some(val);
+                }
+                break;
+            }
+            i += 1;
+        }
+        search_from = value_start;
+    }
+    best
 }
 
 fn resolve_provider_ref(provider: &str) -> Result<(String, String), String> {

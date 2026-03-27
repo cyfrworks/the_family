@@ -11,7 +11,7 @@ import { InformantCard } from '../../components/members/InformantCard';
 import { InformantUsage } from '../../components/members/InformantUsage';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { MEMBER_TYPE_DESCRIPTIONS } from '../../config/constants';
-import type { Member, MemberType } from '../../lib/types';
+import type { Member, MemberType, SoldierType, SoldierConfig } from '../../lib/types';
 import { toast } from '../../lib/toast';
 import { confirmAlert } from '../../lib/alert';
 import { BackgroundWatermark } from '../../components/BackgroundWatermark';
@@ -105,8 +105,8 @@ export default function MembersScreen() {
     member_type?: MemberType;
     caporegime_id?: string;
     avatar_url?: string;
-    soldier_type?: string;
-    soldier_config?: Record<string, unknown>;
+    soldier_type?: SoldierType;
+    soldier_config?: SoldierConfig;
   }) {
     try {
       if (editing) {

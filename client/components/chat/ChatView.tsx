@@ -17,6 +17,7 @@ interface CompletedProgress {
   totalTokens: number;
   events: MemberProgress['events'];
   streamedContent: string;
+  isError?: boolean;
 }
 
 interface ChatViewProps {
@@ -68,6 +69,7 @@ export function ChatView({
           totalTokens: p.totalTokens,
           events: p.events,
           streamedContent: p.streamedContent,
+          isError: p.isError,
         };
         map.set(p.messageId, entry);
         completedProgressRef.current.set(p.messageId, entry);

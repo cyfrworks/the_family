@@ -143,11 +143,23 @@ fn get_state(access_token: &str) -> Result<String, String> {
     )
     .unwrap_or(Value::Array(vec![]));
 
+    // Back room sit-downs (direct 1-1 with unread counts + other Don's profile)
+    let back_room_sit_downs = supabase_call(
+        "db.rpc",
+        json!({
+            "function": "list_back_room_sit_downs_with_unread",
+            "body": {},
+            "access_token": access_token
+        }),
+    )
+    .unwrap_or(Value::Array(vec![]));
+
     Ok(json!({
         "contacts": contacts,
         "pending_invites": pending_invites,
         "sent_invites": sent_invites,
-        "commission_sit_downs": commission_sit_downs
+        "commission_sit_downs": commission_sit_downs,
+        "back_room_sit_downs": back_room_sit_downs
     })
     .to_string())
 }

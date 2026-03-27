@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cyfrCall } from '../lib/cyfr';
 import { getAccessToken } from '../lib/supabase';
 import { useAuth } from './AuthContext';
-import type { CommissionContact, SitDown } from '../lib/types';
+import type { CommissionContact, SitDown, BackRoomSitDown } from '../lib/types';
 
 const COMMISSION_API_REF = 'formula:local.commission-api:0.1.0';
 
@@ -12,12 +12,14 @@ export interface CommissionData {
   pendingInvites: CommissionContact[];
   sentInvites: CommissionContact[];
   commissionSitDowns: SitDown[];
+  backRoomSitDowns: BackRoomSitDown[];
 }
 
 interface CommissionState extends CommissionData {
   loading: boolean;
   refetch: () => Promise<void>;
   markSitDownAsRead: (id: string) => void;
+  markBackRoomAsRead: (id: string) => void;
 }
 
 const CommissionContext = createContext<CommissionState | null>(null);
@@ -48,6 +50,7 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
         pendingInvites: (res?.pending_invites as CommissionContact[]) || [],
         sentInvites: (res?.sent_invites as CommissionContact[]) || [],
         commissionSitDowns: (res?.commission_sit_downs as SitDown[]) || [],
+        backRoomSitDowns: (res?.back_room_sit_downs as BackRoomSitDown[]) || [],
       };
     },
     staleTime: 60_000,
@@ -72,14 +75,28 @@ export function CommissionProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  function markBackRoomAsRead(id: string) {
+    queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        backRoomSitDowns: old.backRoomSitDowns.map((sd) =>
+          sd.id === id ? { ...sd, unread_count: 0 } : sd,
+        ),
+      };
+    });
+  }
+
   const value: CommissionState = {
     contacts: data?.contacts ?? [],
     pendingInvites: data?.pendingInvites ?? [],
     sentInvites: data?.sentInvites ?? [],
     commissionSitDowns: data?.commissionSitDowns ?? [],
+    backRoomSitDowns: data?.backRoomSitDowns ?? [],
     loading: isLoading,
     refetch,
     markSitDownAsRead,
+    markBackRoomAsRead,
   };
 
   return (

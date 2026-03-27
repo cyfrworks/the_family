@@ -1,6 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { QueryClient } from '@tanstack/react-query';
-import type { SitDown, CommissionContact } from './types';
+import type { SitDown, BackRoomSitDown, CommissionContact } from './types';
 import { getSupabase } from './realtime';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,7 @@ interface CommissionData {
   pendingInvites: CommissionContact[];
   sentInvites: CommissionContact[];
   commissionSitDowns: SitDown[];
+  backRoomSitDowns: BackRoomSitDown[];
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,11 @@ function flushInvalidations() {
 // ---------------------------------------------------------------------------
 
 function insertSitDownIntoCache(queryClient: QueryClient, sitDown: SitDown) {
-  if (sitDown.is_commission) {
+  if (sitDown.is_direct) {
+    // Direct sitdowns need enriched data from the list RPC (other Don's profile, last message)
+    // so we invalidate rather than inserting the raw row
+    scheduleInvalidation(queryClient, 'commission');
+  } else if (sitDown.is_commission) {
     queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
       if (!old) return old;
       if (old.commissionSitDowns.some((sd) => sd.id === sitDown.id)) return old;
@@ -81,8 +86,18 @@ function removeSitDownFromCache(queryClient: QueryClient, sitDownId: string) {
   );
   queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
     if (!old) return old;
-    if (!old.commissionSitDowns.some((sd) => sd.id === sitDownId)) return old;
-    return { ...old, commissionSitDowns: old.commissionSitDowns.filter((sd) => sd.id !== sitDownId) };
+    const inCommission = old.commissionSitDowns.some((sd) => sd.id === sitDownId);
+    const inBackRoom = old.backRoomSitDowns.some((sd) => sd.id === sitDownId);
+    if (!inCommission && !inBackRoom) return old;
+    return {
+      ...old,
+      commissionSitDowns: inCommission
+        ? old.commissionSitDowns.filter((sd) => sd.id !== sitDownId)
+        : old.commissionSitDowns,
+      backRoomSitDowns: inBackRoom
+        ? old.backRoomSitDowns.filter((sd) => sd.id !== sitDownId)
+        : old.backRoomSitDowns,
+    };
   });
   // Disable & clear the conversation-level cache so the screen detects removal
   // Using setQueryData(null) instead of removeQueries to avoid triggering a refetch
@@ -122,9 +137,21 @@ export function startGlobalChannel(userId: string, queryClient: QueryClient) {
           return;
         }
 
-        // Try commission list
+        // Try back room list
         const commData = queryClient.getQueryData<CommissionData>(['commission', 'state']);
         if (commData) {
+          const brIdx = commData.backRoomSitDowns.findIndex((sd) => sd.id === msg.sit_down_id);
+          if (brIdx !== -1) {
+            queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {
+              if (!old) return old;
+              const updated = [...old.backRoomSitDowns];
+              updated[brIdx] = { ...updated[brIdx], unread_count: (updated[brIdx].unread_count ?? 0) + 1 };
+              return { ...old, backRoomSitDowns: updated };
+            });
+            return;
+          }
+
+          // Try commission list
           const idx = commData.commissionSitDowns.findIndex((sd) => sd.id === msg.sit_down_id);
           if (idx !== -1) {
             queryClient.setQueryData<CommissionData>(['commission', 'state'], (old) => {

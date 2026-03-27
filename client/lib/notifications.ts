@@ -34,6 +34,11 @@ Notifications.setNotificationHandler({
 // ---------------------------------------------------------------------------
 
 export async function registerForPushNotifications(): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    console.log('Push notifications are not supported on web');
+    return null;
+  }
+
   if (!Device.isDevice) {
     console.log('Push notifications require a physical device');
     return null;
@@ -58,7 +63,14 @@ export async function registerForPushNotifications(): Promise<string | null> {
     return null;
   }
 
-  const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+  let token: string;
+  try {
+    const result = await Notifications.getExpoPushTokenAsync({ projectId });
+    token = result.data;
+  } catch (err) {
+    console.error('Failed to get push token:', err);
+    return null;
+  }
   _currentToken = token;
 
   // Register token with backend

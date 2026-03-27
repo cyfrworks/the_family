@@ -18,16 +18,19 @@ import {
   Crown,
   Activity,
   Copy,
+  MessageCircle,
 } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserAvatar } from '../common/UserAvatar';
 import { useSitDowns } from '../../hooks/useSitDowns';
 import { useCommission } from '../../hooks/useCommission';
 import { useCommissionSitDowns } from '../../hooks/useCommissionSitDowns';
+import { useBackRoomSitDowns } from '../../hooks/useBackRoomSitDowns';
 import { useRealtimeStatus } from '../../hooks/useRealtimeStatus';
 import { CreateSitdownModal } from '../sitdown/CreateSitdownModal';
 import { CreateCommissionSitDownModal } from '../commission/CreateCommissionSitDownModal';
 import { InviteToCommissionModal } from '../commission/InviteToCommissionModal';
+import { BackRoomListItem } from '../sitdowns/BackRoomListItem';
 import { TIER_LABELS, TIER_COLORS } from '../../config/constants';
 import * as Clipboard from 'expo-clipboard';
 import { toast } from '../../lib/toast';
@@ -128,6 +131,7 @@ export function Sidebar(props: DrawerContentComponentProps) {
   const { sitDowns, createSitDown, leaveSitDown: leaveFamilySitDown, markAsRead: markSitDownAsRead, refetch: refetchSitDowns } = useSitDowns();
   const { contacts, pendingInvites, sentInvites, acceptInvite, declineInvite, removeContact } = useCommission();
   const { sitDowns: commissionSitDowns, leaveSitDown: leaveCommissionSitDown, markAsRead: markCommissionAsRead } = useCommissionSitDowns();
+  const { backRoomContacts, backRoomSitDowns, openOrCreateBackRoom, markAsRead: markBackRoomAsRead } = useBackRoomSitDowns();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showCommissionCreate, setShowCommissionCreate] = useState(false);
@@ -243,7 +247,19 @@ export function Sidebar(props: DrawerContentComponentProps) {
   }
 
   const familyUnread = sitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
+  const backRoomUnread = backRoomSitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
   const commissionUnread = commissionSitDowns.reduce((sum, sd) => sum + (sd.unread_count ?? 0), 0);
+
+  async function handleBackRoomPress(contactUserId: string) {
+    try {
+      const id = await openOrCreateBackRoom(contactUserId);
+      markBackRoomAsRead(id);
+      closeDrawer();
+      router.push(`/sitdown/${id}`);
+    } catch {
+      // openOrCreateBackRoom handles errors
+    }
+  }
 
   return (
     <>
@@ -331,6 +347,38 @@ export function Sidebar(props: DrawerContentComponentProps) {
                   No sit-downs yet. Start one.
                 </Text>
               )}
+            </View>
+
+            {/* ── Back Room ────────────────────────────────── */}
+            <View className="mt-5 border-t border-stone-800 pt-4">
+              <View className="mb-1 flex-row items-center gap-1.5">
+                <Text className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Back Room
+                </Text>
+                {backRoomUnread > 0 && (
+                  <View className="h-3.5 min-w-[14px] items-center justify-center rounded-full bg-gold-600 px-1">
+                    <Text className="text-[8px] font-bold text-stone-950">
+                      {backRoomUnread > 99 ? '99+' : backRoomUnread}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ gap: 2 }}>
+                {backRoomContacts.map((contact) => (
+                  <BackRoomListItem
+                    key={contact.contactUserId}
+                    contact={contact}
+                    onPress={() => handleBackRoomPress(contact.contactUserId)}
+                    variant="sidebar"
+                  />
+                ))}
+                {backRoomContacts.length === 0 && (
+                  <Text className="px-3 py-4 text-center text-xs text-stone-600">
+                    No conversations yet.
+                  </Text>
+                )}
+              </View>
             </View>
 
             {/* ── Commission Sit-downs ──────────────────────── */}
@@ -431,6 +479,17 @@ export function Sidebar(props: DrawerContentComponentProps) {
                         </Pressable>
                       }
                     >
+                      <Pressable
+                        onPress={() => {
+                          setMenuOpen(null);
+                          handleBackRoomPress(c.contact_user_id);
+                        }}
+                        className="flex-row items-center gap-2 px-3 py-1.5"
+                        style={{ width: 144 }}
+                      >
+                        <MessageCircle size={14} color="#d97706" />
+                        <Text className="text-sm text-gold-500">Pull aside</Text>
+                      </Pressable>
                       <Pressable
                         onPress={async () => {
                           setMenuOpen(null);

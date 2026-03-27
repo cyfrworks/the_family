@@ -57,6 +57,8 @@ function formatEvent(event: ProgressEvent): string {
       return `Response (${event.content?.length ?? 0} chars)`;
     case 'usage':
       return `${event.inputTokens ?? 0} in / ${event.outputTokens ?? 0} out tokens`;
+    case 'error':
+      return event.message || 'Error';
     default:
       return event.kind;
   }
@@ -76,6 +78,8 @@ function eventIcon(kind: string): string {
       return '\u270E'; // ✎
     case 'usage':
       return '\u2234'; // ∴
+    case 'error':
+      return '\u2717'; // ✗
     default:
       return '\u00B7'; // ·
   }
@@ -106,7 +110,7 @@ export function MemberProgressCard({ progress }: MemberProgressCardProps) {
   const hasEvents = progress.events.length > 0;
 
   return (
-    <View className="mx-3 mb-2 rounded-lg border border-stone-800 bg-stone-900/80">
+    <View className={`mx-3 mb-2 rounded-lg border ${progress.isError ? 'border-red-800/50 bg-red-900/10' : 'border-stone-800 bg-stone-900/80'}`}>
       {/* Collapsed header — always visible */}
       <Pressable
         onPress={() => setExpanded((v) => !v)}
@@ -118,12 +122,14 @@ export function MemberProgressCard({ progress }: MemberProgressCardProps) {
             <PulseDot delay={150} />
             <PulseDot delay={300} />
           </View>
+        ) : progress.isError ? (
+          <Text className="text-red-400 text-xs mr-2">{'\u2717'}</Text>
         ) : (
           <Text className="text-yellow-500/60 text-xs mr-2">{'\u2713'}</Text>
         )}
 
         <Text className="text-xs text-stone-400 font-medium flex-1" numberOfLines={1}>
-          <Text className="text-yellow-500">{progress.memberName}</Text>
+          <Text className={progress.isError ? 'text-red-400' : 'text-yellow-500'}>{progress.memberName}</Text>
           {progress.statusText ? ` \u2014 ${progress.statusText}` : ' is deliberating...'}
           {!progress.completed && elapsed > 0 ? (
             <Text className="text-stone-600"> {elapsed}s</Text>
